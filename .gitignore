@@ -1,0 +1,28 @@
+# Binaries
+/bbdown
+/bbdown.exe
+/dist/
+/bin/
+
+# Go build artifacts
+*.exe
+*.test
+*.prof
+*.out
+coverage.out
+coverage.html
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Local config / runtime
+/tmp/
+/cookies.json
+qrcode.png
+
+# Worktrees created during parallel development
+/.worktrees/
