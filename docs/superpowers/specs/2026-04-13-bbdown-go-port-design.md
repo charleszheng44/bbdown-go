@@ -193,6 +193,6 @@ The README opens with:
 
 ## 14. Open items before implementation
 
-- GitHub handle for the Go module path (`github.com/<handle>/bbdown-go`).
+- Go module path is `github.com/charleszheng44/bbdown-go`.
 - Exact default thread count and batch concurrency (placeholders: 8 / 2).
 - Whether to ship a `Dockerfile` in v1 (BBDown has one; leaning no for minimal scope).
