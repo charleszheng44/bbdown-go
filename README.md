@@ -20,7 +20,7 @@ Under active development. Track progress and open issues at <https://github.com/
 
 ## Prerequisites
 
-- Go 1.22 or newer (to build or `go install`).
+- Go 1.25 or newer (to build or `go install`).
 - [ffmpeg](https://ffmpeg.org/) available on your `PATH` (used for muxing video, audio, and subtitles into MP4).
 
 ## Install
