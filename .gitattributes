@@ -1,0 +1,21 @@
+# Enforce LF line endings for source and text files.
+# Windows CI runners have core.autocrlf=true by default, which rewrites
+# checked-out files to CRLF and breaks `gofmt -l` (gofmt emits LF).
+* text=auto eol=lf
+
+# Belt-and-braces: call out the file types we actually care about.
+*.go        text eol=lf
+*.mod       text eol=lf
+*.sum       text eol=lf
+*.md        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.json      text eol=lf
+*.sh        text eol=lf
+
+# Binary assets should never be touched.
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
