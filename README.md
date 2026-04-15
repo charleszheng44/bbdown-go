@@ -2,6 +2,8 @@
 
 A Go port of [BBDown](https://github.com/nilaoda/BBDown) — a minimal command-line downloader for Bilibili.
 
+This is a deliberately smaller rewrite: it keeps only the features I actually use day-to-day (video/audio/subtitle download, quality selection, multi-part and batch download, authenticated access including purchased courses) and omits the rest. For the full feature set, please use the upstream project.
+
 ## Legal Disclaimer
 
 **English.** This tool is provided for personal, research, and non-commercial use only. It is intended to help users retrieve content that they are themselves entitled to access under Bilibili's Terms of Service and the applicable law of their jurisdiction — for example, videos on their own account, content they have purchased, or content the copyright holder has explicitly authorized them to download. You are solely responsible for how you use this software and for complying with all relevant laws, platform terms, and copyright. Do not use this tool to download, redistribute, or commercially exploit content you do not have the right to access. The authors and contributors provide this software "as is", without warranty of any kind, and disclaim all liability for any direct or indirect consequences arising from its use or misuse.
@@ -10,9 +12,11 @@ A Go port of [BBDown](https://github.com/nilaoda/BBDown) — a minimal command-l
 
 ## Attribution
 
-This project is a Go port of [BBDown](https://github.com/nilaoda/BBDown) by [nilaoda](https://github.com/nilaoda). The API request flows, URL parsing rules, and login logic used here are derived from that project; all credit for the original reverse-engineering work belongs to the upstream authors.
+I ported this project from [BBDown](https://github.com/nilaoda/BBDown) by [nilaoda](https://github.com/nilaoda). The API request flows, URL parsing rules, and login logic used here are derived from that project; all credit for the original reverse-engineering work belongs to the upstream authors.
 
-The implementation in this repository was written entirely by Claude (Anthropic) under human direction. Any bugs, omissions, or stylistic choices in the Go code are the responsibility of this port, not the upstream project.
+This port is intentionally simpler than the upstream. It implements only the subset of features I personally need — basic video/audio/subtitle download, quality selection, multi-part and batch download, and authenticated access to private content and purchased courses. Features from upstream that are not included here (Dolby Vision handling, the international/Southeast-Asia API, danmaku, cover art, AI-subtitle downloads, aria2c integration, and so on) are out of scope; use the upstream project if you need them.
+
+The Go implementation in this repository was written entirely by Claude (Anthropic) under my direction. Any bugs, omissions, or stylistic choices in the Go code are the responsibility of this port, not the upstream project.
 
 ## Status
 
