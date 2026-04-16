@@ -381,6 +381,98 @@ func TestUnknownResponseCode(t *testing.T) {
 	})
 }
 
+// TestFetchPlayInfo_CoursePreview exercises the case where pugv playurl
+// returns code 0 with is_preview=1 and a durl-only MP4 preview clip. The
+// session is not entitled to the full DASH streams; callers should see
+// ErrContentLocked, not an empty-streams surprise at the planner layer.
+func TestFetchPlayInfo_CoursePreview(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/pugv/view/web/season", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write(envelopeOK(map[string]any{
+			"title":    "Course",
+			"episodes": []map[string]any{{"id": 77, "cid": 700, "aid": 8000, "title": "Lesson"}},
+		}))
+	})
+	mux.HandleFunc("/pugv/player/web/playurl", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write(envelopeOK(map[string]any{
+			"is_preview": 1,
+			"type":       "MP4",
+			"fnval":      1,
+			"durl": []map[string]any{
+				{"size": 100, "length": 500, "url": "https://preview.example/clip.mp4"},
+			},
+		}))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	withAllBases(t, srv.URL, func() {
+		c := NewClient(nil, "")
+		_, err := c.FetchPlayInfo(context.Background(), parser.Target{Kind: parser.KindCourse, EPID: "77"}, 1)
+		if !errors.Is(err, ErrContentLocked) {
+			t.Fatalf("got %v, want ErrContentLocked", err)
+		}
+	})
+}
+
+// TestFetchPlayInfo_BangumiPreview mirrors TestFetchPlayInfo_CoursePreview
+// for the pgc path, which also returns is_preview=1 for non-VIP sessions
+// attempting to watch VIP-only episodes.
+func TestFetchPlayInfo_BangumiPreview(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/pgc/view/web/season", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write(envelopeOK(map[string]any{
+			"title":    "X",
+			"episodes": []map[string]any{{"ep_id": 1, "cid": 10, "aid": 20, "title": "E"}},
+		}))
+	})
+	mux.HandleFunc("/pgc/player/web/playurl", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write(envelopeOK(map[string]any{
+			"is_preview": 1,
+			"type":       "MP4",
+			"durl":       []map[string]any{{"url": "https://preview.example/clip.mp4"}},
+		}))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	withAllBases(t, srv.URL, func() {
+		c := NewClient(nil, "")
+		_, err := c.FetchPlayInfo(context.Background(), parser.Target{Kind: parser.KindBangumi, EPID: "1"}, 1)
+		if !errors.Is(err, ErrContentLocked) {
+			t.Fatalf("got %v, want ErrContentLocked", err)
+		}
+	})
+}
+
+// TestFetchPlayInfo_CourseNoDashNoPreview exercises the defensive path:
+// playurl succeeded (code 0) and is_preview=0, but no recognized shape
+// populated any streams. Callers should see ErrUnknownResponse rather than
+// leaking an empty-streams state to the planner.
+func TestFetchPlayInfo_CourseNoDashNoPreview(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/pugv/view/web/season", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write(envelopeOK(map[string]any{
+			"title":    "Course",
+			"episodes": []map[string]any{{"id": 77, "cid": 700, "aid": 8000, "title": "Lesson"}},
+		}))
+	})
+	mux.HandleFunc("/pugv/player/web/playurl", func(w http.ResponseWriter, _ *http.Request) {
+		// Code 0, no is_preview, but zero streams in either shape we know.
+		w.Write(envelopeOK(map[string]any{"message": "ok"}))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	withAllBases(t, srv.URL, func() {
+		c := NewClient(nil, "")
+		_, err := c.FetchPlayInfo(context.Background(), parser.Target{Kind: parser.KindCourse, EPID: "77"}, 1)
+		if !errors.Is(err, ErrUnknownResponse) {
+			t.Fatalf("got %v, want ErrUnknownResponse", err)
+		}
+	})
+}
+
 // TestFetchSubtitle_EndToEnd drives the FetchSubtitle path through an
 // httptest server serving BCC JSON.
 func TestFetchSubtitle_EndToEnd(t *testing.T) {
