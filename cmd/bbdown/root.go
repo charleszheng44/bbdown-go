@@ -91,6 +91,7 @@ func newRootCmd(flags *rootFlags) *cobra.Command {
 
 	cmd.AddCommand(newLoginCmd(flags))
 	cmd.AddCommand(newLogoutCmd())
+	cmd.AddCommand(newPartsCmd(flags))
 
 	return cmd
 }
