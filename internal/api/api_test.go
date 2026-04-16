@@ -190,7 +190,7 @@ func TestFetchPlayInfo_Bangumi_Success(t *testing.T) {
 			},
 		}))
 	})
-	mux.HandleFunc("/pgc/player/web/playurl", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/pgc/player/web/v2/playurl", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("ep_id") != "12345" || r.URL.Query().Get("cid") != "999" {
 			t.Errorf("playurl params mismatch: %s", r.URL.RawQuery)
 		}
@@ -234,7 +234,7 @@ func TestFetchPlayInfo_Bangumi_NestedPlayurl(t *testing.T) {
 			"episodes": []map[string]any{{"ep_id": 1, "cid": 10, "aid": 20, "title": "E"}},
 		}))
 	})
-	mux.HandleFunc("/pgc/player/web/playurl", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/pgc/player/web/v2/playurl", func(w http.ResponseWriter, _ *http.Request) {
 		w.Write(envelopeOK(map[string]any{
 			"video_info": map[string]any{
 				"accept_quality":     []int{80},
@@ -426,7 +426,7 @@ func TestFetchPlayInfo_BangumiPreview(t *testing.T) {
 			"episodes": []map[string]any{{"ep_id": 1, "cid": 10, "aid": 20, "title": "E"}},
 		}))
 	})
-	mux.HandleFunc("/pgc/player/web/playurl", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/pgc/player/web/v2/playurl", func(w http.ResponseWriter, _ *http.Request) {
 		w.Write(envelopeOK(map[string]any{
 			"is_preview": 1,
 			"type":       "MP4",

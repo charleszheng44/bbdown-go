@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/charleszheng44/bbdown-go/internal/parser"
 )
@@ -197,15 +198,7 @@ func (c *Client) fetchBangumi(ctx context.Context, t parser.Target, page int) (P
 	info.AID = strconv.FormatInt(ep.AID, 10)
 	info.CID = strconv.FormatInt(ep.CID, 10)
 
-	playQ := map[string]string{
-		"ep_id": info.EPID,
-		"cid":   info.CID,
-		"qn":    "0",
-		"fnval": "4048",
-		"fnver": "0",
-		"fourk": "1",
-	}
-	playURL := pgcBase + "/pgc/player/web/playurl?" + encodeQuery(playQ)
+	playURL := pgcBase + "/pgc/player/web/v2/playurl?" + bangumiPlayQuery(info.AID, info.CID, info.EPID)
 	playRaw, err := c.doJSON(ctx, playURL)
 	if err != nil {
 		return PlayInfo{}, err
@@ -293,15 +286,11 @@ func (c *Client) fetchCourse(ctx context.Context, t parser.Target, page int) (Pl
 	info.AID = strconv.FormatInt(ep.AID, 10)
 	info.CID = strconv.FormatInt(ep.CID, 10)
 
-	playQ := map[string]string{
-		"ep_id": info.EPID,
-		"cid":   info.CID,
-		"qn":    "0",
-		"fnval": "4048",
-		"fnver": "0",
-		"fourk": "1",
-	}
-	playURL := pugvBase + "/pugv/player/web/playurl?" + encodeQuery(playQ)
+	// pugv has no /v2/ path (returns HTML 404); keep the v1 endpoint but
+	// send the same extended param set as pgc v2 — Bilibili's server
+	// accepts the extras silently and, importantly, expects module=bangumi
+	// + ep_id + session for anything beyond a preview-mode response.
+	playURL := pugvBase + "/pugv/player/web/playurl?" + bangumiPlayQuery(info.AID, info.CID, info.EPID)
 	playRaw, err := c.doJSON(ctx, playURL)
 	if err != nil {
 		return PlayInfo{}, err
@@ -310,6 +299,24 @@ func (c *Client) fetchCourse(ctx context.Context, t parser.Target, page int) (Pl
 		return PlayInfo{}, err
 	}
 	return info, nil
+}
+
+// wtsNow is the Unix-seconds timestamp injected into bangumi/cheese
+// playurl URLs. Overridable in tests for reproducible query strings.
+var wtsNow = func() int64 { return time.Now().Unix() }
+
+// bangumiPlayQuery builds the query string for the /pgc and /pugv v2
+// playurl endpoints. The param set (and ordering) mirrors the upstream
+// BBDown implementation, which is what Bilibili's current web front-end
+// sends. Some of these (support_multi_audio, from_client, module,
+// session, wts) appear redundant but are treated as a signal that the
+// caller is a legitimate web client; the older endpoint without them
+// silently downgrades purchased content to preview-only clips.
+func bangumiPlayQuery(aid, cid, epid string) string {
+	return fmt.Sprintf(
+		"support_multi_audio=true&from_client=BROWSER&avid=%s&cid=%s&fnval=4048&fnver=0&fourk=1&otype=json&qn=0&module=bangumi&ep_id=%s&session=&wts=%d",
+		aid, cid, epid, wtsNow(),
+	)
 }
 
 // ─── playurl decoding ─────────────────────────────────────────────────────
