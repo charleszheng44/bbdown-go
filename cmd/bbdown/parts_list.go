@@ -50,8 +50,10 @@ func renderParts(w io.Writer, title string, parts []api.Part) error {
 	}
 	for _, p := range parts {
 		dur := formatDuration(p.Duration)
+		// Promote sub-hour rows so the column width is uniform.
+		// Duration<=0 stays as the "--:--" sentinel, unchanged.
 		if useHours && p.Duration > 0 && p.Duration < 3600 {
-			dur = fmt.Sprintf("00:%s", dur) // promote mm:ss -> 00:mm:ss
+			dur = fmt.Sprintf("00:%02d:%02d", p.Duration/60, p.Duration%60)
 		}
 		if _, err := fmt.Fprintf(tw, "%d\t%s\t%s\n", p.Page, dur, p.Title); err != nil {
 			return err
