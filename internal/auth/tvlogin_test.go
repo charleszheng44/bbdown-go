@@ -1,11 +1,18 @@
 package auth
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestTVSignIsMD5OfQueryPlusAppsec(t *testing.T) {
@@ -82,5 +89,131 @@ func TestEncodeOrderedEscapesSpecialChars(t *testing.T) {
 	want := "k1=" + url.QueryEscape("a b") + "&k2=" + url.QueryEscape("+")
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestLoginTVSuccess(t *testing.T) {
+	var pollCalls atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/x/passport-tv-login/qrcode/auth_code", func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+		if r.FormValue("appkey") != tvAppkey {
+			t.Errorf("appkey: %q", r.FormValue("appkey"))
+		}
+		if r.FormValue("sign") == "" {
+			t.Errorf("sign missing")
+		}
+		io.WriteString(w, `{"code":0,"data":{"url":"bilibili://login?auth_code=AC","auth_code":"AC"}}`)
+	})
+	mux.HandleFunc("/x/passport-tv-login/qrcode/poll", func(w http.ResponseWriter, r *http.Request) {
+		n := pollCalls.Add(1)
+		if n == 1 {
+			io.WriteString(w, `{"code":86039,"data":{}}`)
+			return
+		}
+		io.WriteString(w, `{"code":0,"data":{"access_token":"at","refresh_token":"rt","expires_in":3600,"mid":42}}`)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	origAuthCodeBase := tvAuthCodeBase
+	origPollBase := tvPollBase
+	origPollInt := tvPollInterval
+	origQR := tvQRWriter
+	origLog := tvLogWriter
+	origClock := tvNow
+	tvAuthCodeBase = srv.URL
+	tvPollBase = srv.URL
+	tvPollInterval = 1 * time.Millisecond
+	tvQRWriter = io.Discard
+	tvLogWriter = io.Discard
+	tvNow = func() time.Time { return time.Unix(1700000000, 0) }
+	defer func() {
+		tvAuthCodeBase = origAuthCodeBase
+		tvPollBase = origPollBase
+		tvPollInterval = origPollInt
+		tvQRWriter = origQR
+		tvLogWriter = origLog
+		tvNow = origClock
+	}()
+
+	got, err := LoginTV(context.Background(), srv.Client())
+	if err != nil {
+		t.Fatalf("LoginTV: %v", err)
+	}
+	if got.AccessToken != "at" || got.RefreshToken != "rt" || got.MID != 42 {
+		t.Errorf("unexpected auth: %+v", got)
+	}
+	if got.ExpiresAt != 1700000000+3600 {
+		t.Errorf("ExpiresAt = %d, want %d", got.ExpiresAt, 1700000000+3600)
+	}
+}
+
+func TestLoginTVExpired(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/x/passport-tv-login/qrcode/auth_code", func(w http.ResponseWriter, _ *http.Request) {
+		io.WriteString(w, `{"code":0,"data":{"url":"bilibili://x","auth_code":"AC"}}`)
+	})
+	mux.HandleFunc("/x/passport-tv-login/qrcode/poll", func(w http.ResponseWriter, _ *http.Request) {
+		io.WriteString(w, `{"code":86038,"data":{}}`)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	origAuthCodeBase := tvAuthCodeBase
+	origPollBase := tvPollBase
+	origPollInt := tvPollInterval
+	origQR := tvQRWriter
+	tvAuthCodeBase = srv.URL
+	tvPollBase = srv.URL
+	tvPollInterval = 1 * time.Millisecond
+	tvQRWriter = io.Discard
+	defer func() {
+		tvAuthCodeBase = origAuthCodeBase
+		tvPollBase = origPollBase
+		tvPollInterval = origPollInt
+		tvQRWriter = origQR
+	}()
+
+	_, err := LoginTV(context.Background(), srv.Client())
+	if !errors.Is(err, ErrQRExpired) {
+		t.Fatalf("want ErrQRExpired, got %v", err)
+	}
+}
+
+func TestLoginTVContextCanceled(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/x/passport-tv-login/qrcode/auth_code", func(w http.ResponseWriter, _ *http.Request) {
+		io.WriteString(w, `{"code":0,"data":{"url":"bilibili://x","auth_code":"AC"}}`)
+	})
+	mux.HandleFunc("/x/passport-tv-login/qrcode/poll", func(w http.ResponseWriter, _ *http.Request) {
+		io.WriteString(w, `{"code":86039,"data":{}}`)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	origAuthCodeBase := tvAuthCodeBase
+	origPollBase := tvPollBase
+	origPollInt := tvPollInterval
+	origQR := tvQRWriter
+	tvAuthCodeBase = srv.URL
+	tvPollBase = srv.URL
+	tvPollInterval = 1 * time.Millisecond
+	tvQRWriter = io.Discard
+	defer func() {
+		tvAuthCodeBase = origAuthCodeBase
+		tvPollBase = origPollBase
+		tvPollInterval = origPollInt
+		tvQRWriter = origQR
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	_, err := LoginTV(ctx, srv.Client())
+	if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context error, got %v", err)
 	}
 }

@@ -1,13 +1,20 @@
 package auth
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
+	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
+
+	"github.com/mdp/qrterminal/v3"
 )
 
 // TV-login constants. These match the values BBDown uses; Bilibili's
@@ -100,4 +107,146 @@ func randomAlnum(n int) string {
 		b[i] = tvRandAlphabet[rand.Intn(len(tvRandAlphabet))]
 	}
 	return string(b)
+}
+
+// Endpoints for the TV flow. Package-level so tests can redirect.
+var (
+	tvAuthCodeBase           = "https://passport.snm0516.aisee.tv"
+	tvPollBase               = "https://passport.bilibili.com"
+	tvPollInterval           = 1 * time.Second
+	tvQRWriter     io.Writer = os.Stdout
+	tvLogWriter    io.Writer = os.Stderr
+	tvNow                    = func() time.Time { return time.Now() }
+)
+
+// tvAuthCodeReply mirrors the shape of /x/passport-tv-login/qrcode/auth_code.
+type tvAuthCodeReply struct {
+	Code int `json:"code"`
+	Data struct {
+		URL      string `json:"url"`
+		AuthCode string `json:"auth_code"`
+	} `json:"data"`
+}
+
+// tvPollReply mirrors the shape of /x/passport-tv-login/qrcode/poll.
+type tvPollReply struct {
+	Code int `json:"code"`
+	Data struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int64  `json:"expires_in"`
+		MID          int64  `json:"mid"`
+	} `json:"data"`
+}
+
+// LoginTV runs the TV QR-code login flow and returns the resulting
+// TVAuth. The QR content is rendered to tvQRWriter (stdout by default);
+// polling happens every tvPollInterval (1 s) until the user confirms,
+// the code expires, or ctx is canceled.
+func LoginTV(ctx context.Context, client *http.Client) (*TVAuth, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
+
+	authCode, qrURL, err := tvRequestAuthCode(ctx, client)
+	if err != nil {
+		return nil, err
+	}
+	qrterminal.GenerateWithConfig(qrURL, qrterminal.Config{
+		Level:     qrterminal.L,
+		Writer:    tvQRWriter,
+		BlackChar: qrterminal.BLACK,
+		WhiteChar: qrterminal.WHITE,
+		QuietZone: 1,
+	})
+
+	return tvPollLoop(ctx, client, authCode)
+}
+
+func tvRequestAuthCode(ctx context.Context, client *http.Client) (authCode, qrURL string, err error) {
+	params := tvLoginParams("", func() int64 { return tvNow().Unix() }, randomAlnum)
+	body := strings.NewReader(encodeOrdered(params))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		tvAuthCodeBase+"/x/passport-tv-login/qrcode/auth_code", body)
+	if err != nil {
+		return "", "", fmt.Errorf("auth: build tv auth_code request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", fmt.Errorf("auth: tv auth_code: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("auth: tv auth_code: status %s", resp.Status)
+	}
+	var parsed tvAuthCodeReply
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return "", "", fmt.Errorf("auth: decode tv auth_code: %w", err)
+	}
+	if parsed.Code != 0 || parsed.Data.AuthCode == "" || parsed.Data.URL == "" {
+		return "", "", fmt.Errorf("auth: tv auth_code: code %d", parsed.Code)
+	}
+	return parsed.Data.AuthCode, parsed.Data.URL, nil
+}
+
+func tvPollLoop(ctx context.Context, client *http.Client, authCode string) (*TVAuth, error) {
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+
+		reply, err := tvPollOnce(ctx, client, authCode)
+		if err != nil {
+			return nil, err
+		}
+		switch reply.Code {
+		case 0:
+			now := tvNow().Unix()
+			return &TVAuth{
+				AccessToken:  reply.Data.AccessToken,
+				RefreshToken: reply.Data.RefreshToken,
+				MID:          reply.Data.MID,
+				ExpiresAt:    now + reply.Data.ExpiresIn,
+			}, nil
+		case 86039:
+			// Not scanned yet; keep polling silently.
+		case 86038:
+			return nil, ErrQRExpired
+		default:
+			return nil, fmt.Errorf("auth: tv poll unexpected code %d", reply.Code)
+		}
+		timer.Reset(tvPollInterval)
+	}
+}
+
+func tvPollOnce(ctx context.Context, client *http.Client, authCode string) (*tvPollReply, error) {
+	params := tvLoginParams(authCode, func() int64 { return tvNow().Unix() }, randomAlnum)
+	body := strings.NewReader(encodeOrdered(params))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		tvPollBase+"/x/passport-tv-login/qrcode/poll", body)
+	if err != nil {
+		return nil, fmt.Errorf("auth: build tv poll request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("auth: tv poll: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("auth: tv poll: status %s", resp.Status)
+	}
+	var parsed tvPollReply
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, fmt.Errorf("auth: decode tv poll: %w", err)
+	}
+	return &parsed, nil
 }
