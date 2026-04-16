@@ -100,7 +100,7 @@ Exactly one network round-trip in the happy path (the playinfo call). ffmpeg is 
 - `loadCookies` error → propagated (e.g. `auth.ErrNotLoggedIn` when neither `--cookie` nor a persisted file is available). Matches download behavior.
 - `parser.Classify` error → propagated unchanged.
 - `FetchPlayInfo` error (rate limit, unauthorized, locked content) → propagated; rendered by the existing `formatError` at the main entry point.
-- Empty `info.Parts` despite a successful fetch: fall back to printing a synthetic single row from `info.Title`/unknown duration. This preserves the "uniform shape" contract and only triggers on unusual upstream shapes.
+- Empty `info.Parts` despite a successful fetch: fall back to printing a synthetic single row — `Page=1`, `Duration=0` (renders as `--:--`), `Title=info.Title`. This preserves the "uniform shape" contract and only triggers on unusual upstream shapes. Implemented inside `renderParts` so the handler stays a single linear flow.
 
 No new error types are introduced.
 
