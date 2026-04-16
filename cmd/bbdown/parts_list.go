@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"text/tabwriter"
 
 	"github.com/charleszheng44/bbdown-go/internal/api"
@@ -80,12 +79,16 @@ func newPartsCmd(flags *rootFlags) *cobra.Command {
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			debugMode = flags.Debug
-			return runParts(cmd.Context(), flags, args[0])
+			return runParts(cmd.Context(), cmd.OutOrStdout(), flags, args[0])
 		},
 	}
 }
 
-func runParts(ctx context.Context, flags *rootFlags, rawURL string) error {
+// runParts fetches the page list for rawURL and writes the aligned
+// parts table to w. Returns any cookie, network, or parse error
+// encountered along the way; surface-level formatting is delegated
+// to renderParts.
+func runParts(ctx context.Context, w io.Writer, flags *rootFlags, rawURL string) error {
 	cookies, err := loadCookies(flags)
 	if err != nil {
 		return err
@@ -99,5 +102,5 @@ func runParts(ctx context.Context, flags *rootFlags, rawURL string) error {
 	if err != nil {
 		return err
 	}
-	return renderParts(os.Stdout, info.Title, info.Parts)
+	return renderParts(w, info.Title, info.Parts)
 }
