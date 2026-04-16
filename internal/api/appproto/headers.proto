@@ -1,0 +1,53 @@
+syntax = "proto3";
+package appproto;
+option go_package = "github.com/charleszheng44/bbdown-go/internal/api/appproto";
+
+message Device {
+  int32 app_id = 1;
+  int32 build = 2;
+  string buvid = 3;
+  string mobi_app = 4;
+  string platform = 5;
+  string device = 6;
+  string channel = 7;
+  string brand = 8;
+  string model = 9;
+  string osver = 10;
+}
+
+message Metadata {
+  string access_key = 1;
+  string mobi_app = 2;
+  string device = 3;
+  int32 build = 4;
+  string channel = 5;
+  string buvid = 6;
+  string platform = 7;
+}
+
+message Network {
+  enum TYPE {
+    NT_UNKNOWN = 0;
+    WIFI = 1;
+    CELLULAR = 2;
+    OFFLINE = 3;
+    OTHERNET = 4;
+    ETHERNET = 5;
+  }
+  TYPE type = 1;
+  string oid = 3;
+}
+
+message Locale {
+  message LocaleIds {
+    string language = 1;
+    string region = 3;
+  }
+  LocaleIds c_locale = 1;
+}
+
+message FawkesReq {
+  string appkey = 1;
+  string env = 2;
+  string session_id = 3;
+}

@@ -1,0 +1,47 @@
+syntax = "proto3";
+package appproto;
+option go_package = "github.com/charleszheng44/bbdown-go/internal/api/appproto";
+
+message PlayViewReply {
+  VideoInfo video_info = 1;
+}
+
+message VideoInfo {
+  uint32 quality = 1;
+  string format = 2;
+  uint64 timelength = 3;
+  uint32 video_codecid = 4;
+  repeated StreamItem stream_list = 5;
+  repeated DashItem dash_audio = 6;
+}
+
+message StreamItem {
+  StreamInfo stream_info = 1;
+  DashVideo dash_video = 2;
+}
+
+message StreamInfo {
+  uint32 quality = 1;
+  string format = 2;
+  string description = 3;
+  uint32 err_code = 4;
+}
+
+message DashVideo {
+  string base_url = 1;
+  repeated string backup_url = 2;
+  uint32 bandwidth = 3;
+  uint32 codecid = 4;
+  string md5 = 5;
+  uint64 size = 6;
+}
+
+message DashItem {
+  uint32 id = 1;
+  string base_url = 2;
+  repeated string backup_url = 3;
+  uint32 bandwidth = 4;
+  uint32 codecid = 5;
+  string md5 = 6;
+  uint64 size = 7;
+}

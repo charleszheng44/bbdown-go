@@ -64,8 +64,25 @@ tidy: ## Run go mod tidy.
 	$(GO) mod tidy
 
 .PHONY: ci
-ci: fmt-check vet test build ## Run the same checks as CI (minus staticcheck).
+ci: fmt-check vet test build proto-check ## Run the same checks as CI (minus staticcheck).
 
 .PHONY: clean
 clean: ## Remove build artifacts.
 	rm -rf $(BIN_DIR) coverage.out
+
+.PHONY: proto proto-check
+
+proto: ## Regenerate .pb.go files from .proto sources (requires protoc + protoc-gen-go).
+	protoc --go_out=. --go_opt=paths=source_relative \
+	  internal/api/appproto/playviewreq.proto \
+	  internal/api/appproto/playviewreply.proto \
+	  internal/api/appproto/headers.proto
+
+# proto-check is used in CI: regenerates and fails if the committed
+# .pb.go files drift from the .proto sources.
+proto-check: ## Fail if committed .pb.go files are out of sync with .proto sources.
+	@$(MAKE) proto
+	@git diff --exit-code internal/api/appproto || { \
+	  echo "Regenerate protobuf files: 'make proto' and commit."; \
+	  exit 1; \
+	}

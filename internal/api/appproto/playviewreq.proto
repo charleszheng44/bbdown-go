@@ -1,0 +1,26 @@
+syntax = "proto3";
+package appproto;
+option go_package = "github.com/charleszheng44/bbdown-go/internal/api/appproto";
+
+message PlayViewReq {
+  int64 ep_id = 1;
+  int64 cid = 2;
+  int64 qn = 3;
+  int32 fnver = 4;
+  int32 fnval = 5;
+  uint32 download = 6;
+  int32 force_host = 7;
+  bool fourk = 8;
+  string spmid = 9;
+  string from_spmid = 10;
+  int32 teenagers_mode = 11;
+  enum CodeType {
+    NOCODE = 0;
+    CODE264 = 1;
+    CODE265 = 2;
+    CODEAV1 = 3;
+  }
+  CodeType prefer_codec_type = 12;
+  bool is_preview = 13;
+  int64 room_id = 14;
+}
