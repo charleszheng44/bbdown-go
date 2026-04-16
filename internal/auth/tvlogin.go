@@ -63,7 +63,7 @@ func encodeOrdered(kvs [][2]string) string {
 // tvLoginParams builds the 20-field parameter list for both the
 // auth_code and poll endpoints. Pass "" for authCode on the initial
 // auth_code request. nowFn/randStr are injected for deterministic
-// testing; production callers pass timeNowUnix and randomAlnum.
+// testing; production callers pass tvNow and randomAlnum.
 func tvLoginParams(authCode string, nowFn func() int64, randStr func(n int) string) [][2]string {
 	deviceID := randStr(tvIDLen)
 	buvid := randStr(tvBuvidLen)
@@ -95,10 +95,6 @@ func tvLoginParams(authCode string, nowFn func() int64, randStr func(n int) stri
 	return append(params, [2]string{"sign", sig})
 }
 
-// timeNowUnix / randomAlnum are the production injections for
-// tvLoginParams. Exposed so tests stay deterministic.
-func timeNowUnix() int64 { return time.Now().Unix() }
-
 var tvRandAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_0123456789"
 
 func randomAlnum(n int) string {
@@ -115,7 +111,6 @@ var (
 	tvPollBase               = "https://passport.bilibili.com"
 	tvPollInterval           = 1 * time.Second
 	tvQRWriter     io.Writer = os.Stdout
-	tvLogWriter    io.Writer = os.Stderr
 	tvNow                    = func() time.Time { return time.Now() }
 )
 

@@ -122,20 +122,17 @@ func TestLoginTVSuccess(t *testing.T) {
 	origPollBase := tvPollBase
 	origPollInt := tvPollInterval
 	origQR := tvQRWriter
-	origLog := tvLogWriter
 	origClock := tvNow
 	tvAuthCodeBase = srv.URL
 	tvPollBase = srv.URL
 	tvPollInterval = 1 * time.Millisecond
 	tvQRWriter = io.Discard
-	tvLogWriter = io.Discard
 	tvNow = func() time.Time { return time.Unix(1700000000, 0) }
 	defer func() {
 		tvAuthCodeBase = origAuthCodeBase
 		tvPollBase = origPollBase
 		tvPollInterval = origPollInt
 		tvQRWriter = origQR
-		tvLogWriter = origLog
 		tvNow = origClock
 	}()
 
