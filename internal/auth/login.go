@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/mdp/qrterminal/v3"
@@ -17,6 +18,11 @@ import (
 // package-level variable (not a constant) so tests can point the login flow at
 // an httptest server.
 var passportBase = "https://passport.bilibili.com"
+
+// apiBase is the base URL used for the /x/frontend/finger/spi buvid3 fetch.
+// Kept here (rather than importing from internal/api) so the auth package
+// stays dependency-free.
+var apiBase = "https://api.bilibili.com"
 
 // pollInterval controls how often LoginQR polls the passport service. Exposed
 // as a variable so tests can shorten it.
@@ -75,7 +81,61 @@ func LoginQR(ctx context.Context, client *http.Client) (Cookies, error) {
 		QuietZone: 1,
 	})
 
-	return pollLogin(ctx, client, qrKey)
+	cookies, err := pollLogin(ctx, client, qrKey)
+	if err != nil {
+		return Cookies{}, err
+	}
+	// Best-effort buvid3 fetch. The four cookies above are sufficient for
+	// most endpoints; cheese/bangumi playurl, however, silently downgrades
+	// responses to preview-only clips without buvid3. We do not fail the
+	// login when this call fails — the rest of the cookie set is still
+	// valuable — but we log a warning so a later playurl failure is
+	// diagnosable.
+	if b3, err := fetchBuvid3(ctx, client); err != nil {
+		fmt.Fprintf(logWriter, "warning: could not fetch buvid3 (%v); pgc/pugv playurl may return preview-only responses\n", err)
+	} else {
+		cookies.Buvid3 = b3
+	}
+	return cookies, nil
+}
+
+// fingerSPIResponse mirrors the JSON returned by /x/frontend/finger/spi.
+type fingerSPIResponse struct {
+	Code int `json:"code"`
+	Data struct {
+		B3 string `json:"b_3"`
+		B4 string `json:"b_4"`
+	} `json:"data"`
+}
+
+// fetchBuvid3 calls /x/frontend/finger/spi and returns the b_3 value.
+// Bilibili's web front-end uses this endpoint to seed fresh buvid3/buvid4
+// cookies on first visit; we call it once at login time and persist b_3.
+func fetchBuvid3(ctx context.Context, client *http.Client) (string, error) {
+	endpoint := apiBase + "/x/frontend/finger/spi"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", fmt.Errorf("auth: build finger/spi request: %w", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("auth: finger/spi: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("auth: finger/spi: status %s", resp.Status)
+	}
+	var parsed fingerSPIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return "", fmt.Errorf("auth: decode finger/spi: %w", err)
+	}
+	if parsed.Code != 0 {
+		return "", fmt.Errorf("auth: finger/spi: api code %d", parsed.Code)
+	}
+	if parsed.Data.B3 == "" {
+		return "", fmt.Errorf("auth: finger/spi: empty b_3")
+	}
+	return parsed.Data.B3, nil
 }
 
 // requestQRCode hits .../qrcode/generate and returns (loginURL, qrcodeKey).
@@ -171,6 +231,12 @@ func pollOnce(ctx context.Context, client *http.Client, pollURL string) (int, st
 
 // cookiesFromSuccessURL parses the four Bilibili cookies out of the success
 // redirect URL returned by the poll endpoint.
+//
+// Values are read from u.RawQuery WITHOUT percent-decoding. Bilibili's
+// SESSDATA is delivered as e.g. "abc%2C123%2Ccef%2A41" — the %2C and %2A
+// must be sent back verbatim in the Cookie header; decoding them to ","
+// and "*" causes the server to reject or truncate the value (observed
+// as preview-only playurl responses for purchased content).
 func cookiesFromSuccessURL(raw string) (Cookies, error) {
 	if raw == "" {
 		return Cookies{}, fmt.Errorf("auth: empty success url")
@@ -179,15 +245,29 @@ func cookiesFromSuccessURL(raw string) (Cookies, error) {
 	if err != nil {
 		return Cookies{}, fmt.Errorf("auth: parse success url: %w", err)
 	}
-	q := u.Query()
 	c := Cookies{
-		SESSDATA:        q.Get("SESSDATA"),
-		BiliJCT:         q.Get("bili_jct"),
-		DedeUserID:      q.Get("DedeUserID"),
-		DedeUserIDCkMd5: q.Get("DedeUserID__ckMd5"),
+		SESSDATA:        rawQueryParam(u.RawQuery, "SESSDATA"),
+		BiliJCT:         rawQueryParam(u.RawQuery, "bili_jct"),
+		DedeUserID:      rawQueryParam(u.RawQuery, "DedeUserID"),
+		DedeUserIDCkMd5: rawQueryParam(u.RawQuery, "DedeUserID__ckMd5"),
 	}
 	if c.SESSDATA == "" || c.BiliJCT == "" || c.DedeUserID == "" || c.DedeUserIDCkMd5 == "" {
 		return Cookies{}, fmt.Errorf("auth: success url missing one or more cookies")
 	}
 	return c, nil
+}
+
+// rawQueryParam returns the raw (percent-encoded) value of key in a URL
+// query string, or "" if the key is absent. Unlike url.Values.Get it does
+// not decode %2C, %2A, or any other percent-escapes — the caller gets the
+// byte sequence the server sent, suitable for direct re-emission in a
+// Cookie header.
+func rawQueryParam(rawQuery, key string) string {
+	prefix := key + "="
+	for _, pair := range strings.Split(rawQuery, "&") {
+		if strings.HasPrefix(pair, prefix) {
+			return pair[len(prefix):]
+		}
+	}
+	return ""
 }

@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"testing"
 )
@@ -31,7 +32,7 @@ func TestStoreLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("round-trip mismatch: want %+v, got %+v", want, got)
 	}
 }
@@ -100,9 +101,17 @@ func TestParseCookieString(t *testing.T) {
 			want: Cookies{SESSDATA: "a", BiliJCT: "b", DedeUserID: "c", DedeUserIDCkMd5: "d"},
 		},
 		{
-			name: "extra whitespace and unknown fields",
-			in:   "  SESSDATA=a ;  bili_jct=b ; ignored=x ; DedeUserID=c;DedeUserID__ckMd5=d  ",
-			want: Cookies{SESSDATA: "a", BiliJCT: "b", DedeUserID: "c", DedeUserIDCkMd5: "d"},
+			name: "includes buvid3",
+			in:   "SESSDATA=a; bili_jct=b; DedeUserID=c; DedeUserID__ckMd5=d; buvid3=bv3",
+			want: Cookies{SESSDATA: "a", BiliJCT: "b", DedeUserID: "c", DedeUserIDCkMd5: "d", Buvid3: "bv3"},
+		},
+		{
+			name: "whitespace and unknown fields preserved in extras",
+			in:   "  SESSDATA=a ;  bili_jct=b ; buvid4=bv4 ; DedeUserID=c;DedeUserID__ckMd5=d  ",
+			want: Cookies{
+				SESSDATA: "a", BiliJCT: "b", DedeUserID: "c", DedeUserIDCkMd5: "d",
+				Extras: map[string]string{"buvid4": "bv4"},
+			},
 		},
 		{
 			name: "partial",
@@ -135,7 +144,7 @@ func TestParseCookieString(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if got != tc.want {
+			if !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("want %+v, got %+v", tc.want, got)
 			}
 		})
@@ -168,5 +177,76 @@ func TestAsJarPopulatesAPICookies(t *testing.T) {
 		if got[k] != v {
 			t.Fatalf("cookie %q: want %q, got %q", k, v, got[k])
 		}
+	}
+	if _, ok := got["buvid3"]; ok {
+		t.Errorf("buvid3 should be absent when Buvid3 is empty, got %q", got["buvid3"])
+	}
+}
+
+func TestAsJarIncludesExtras(t *testing.T) {
+	t.Parallel()
+
+	c := Cookies{
+		SESSDATA: "s", BiliJCT: "j", DedeUserID: "1", DedeUserIDCkMd5: "m",
+		Extras: map[string]string{"buvid4": "bv4-val", "bili_ticket": "tkt", "SESSDATA": "ignored"},
+	}
+	jar := c.AsJar()
+	u, _ := url.Parse("https://api.bilibili.com/x/web-interface/nav")
+
+	got := map[string]string{}
+	for _, ck := range jar.Cookies(u) {
+		got[ck.Name] = ck.Value
+	}
+	if got["buvid4"] != "bv4-val" {
+		t.Errorf("buvid4 = %q, want bv4-val", got["buvid4"])
+	}
+	if got["bili_ticket"] != "tkt" {
+		t.Errorf("bili_ticket = %q, want tkt", got["bili_ticket"])
+	}
+	// Reserved-name collisions must not overwrite the real SESSDATA.
+	if got["SESSDATA"] != "s" {
+		t.Errorf("SESSDATA = %q, want s (extras must not shadow named fields)", got["SESSDATA"])
+	}
+}
+
+func TestAsJarIncludesBuvid3WhenSet(t *testing.T) {
+	t.Parallel()
+
+	c := Cookies{SESSDATA: "s", BiliJCT: "j", DedeUserID: "1", DedeUserIDCkMd5: "m", Buvid3: "bv3-val"}
+	jar := c.AsJar()
+	u, _ := url.Parse("https://api.bilibili.com/x/web-interface/nav")
+
+	for _, ck := range jar.Cookies(u) {
+		if ck.Name == "buvid3" {
+			if ck.Value != "bv3-val" {
+				t.Errorf("buvid3 value = %q, want %q", ck.Value, "bv3-val")
+			}
+			return
+		}
+	}
+	t.Errorf("buvid3 cookie not found in jar")
+}
+
+func TestStoreLoadRoundTripWithBuvid3(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cookies.json")
+	want := Cookies{
+		SESSDATA:        "s",
+		BiliJCT:         "j",
+		DedeUserID:      "1",
+		DedeUserIDCkMd5: "m",
+		Buvid3:          "bv3",
+	}
+	if err := Store(path, want); err != nil {
+		t.Fatalf("Store: %v", err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("round-trip mismatch: want %+v, got %+v", want, got)
 	}
 }

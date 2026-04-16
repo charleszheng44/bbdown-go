@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -55,22 +56,33 @@ func newFakePassport(t *testing.T, generateBody string, pollResp func(call int) 
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, f.pollResponse(n))
 	})
+	// Default finger/spi handler returns a deterministic buvid3 so
+	// LoginQR tests can assert the field round-trips. Individual tests
+	// may override behavior by redefining passportBase/apiBase after
+	// calling newFakePassport.
+	mux.HandleFunc("/x/frontend/finger/spi", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"code":0,"data":{"b_3":"bv3-test","b_4":"bv4-test"}}`)
+	})
 
 	f.srv = httptest.NewServer(mux)
 
 	// Swap globals.
-	origBase := passportBase
+	origPassport := passportBase
+	origAPI := apiBase
 	origInterval := pollInterval
 	origQR := qrWriter
 	origLog := logWriter
 	passportBase = f.srv.URL
+	apiBase = f.srv.URL
 	pollInterval = 1 * time.Millisecond
 	qrWriter = f.qrBuf
 	logWriter = f.logBuf
 
 	t.Cleanup(func() {
 		f.srv.Close()
-		passportBase = origBase
+		passportBase = origPassport
+		apiBase = origAPI
 		pollInterval = origInterval
 		qrWriter = origQR
 		logWriter = origLog
@@ -102,8 +114,8 @@ func TestLoginQRSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoginQR: %v", err)
 	}
-	want := Cookies{SESSDATA: "s-val", BiliJCT: "j-val", DedeUserID: "42", DedeUserIDCkMd5: "m-val"}
-	if got != want {
+	want := Cookies{SESSDATA: "s-val", BiliJCT: "j-val", DedeUserID: "42", DedeUserIDCkMd5: "m-val", Buvid3: "bv3-test"}
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("want %+v, got %+v", want, got)
 	}
 	if f.qrBuf.Len() == 0 {
@@ -179,6 +191,26 @@ func TestLoginQRGenerateHTTPError(t *testing.T) {
 	_, err := LoginQR(context.Background(), srv.Client())
 	if err == nil {
 		t.Fatalf("expected error from failed generate call")
+	}
+}
+
+// TestLoginQRPreservesSESSDATAEncoding guards against a regression where
+// the passport-delivered SESSDATA (which contains %2C and %2A) gets
+// percent-decoded during extraction. Sending the decoded form back to
+// Bilibili causes cheese/bangumi playurl to downgrade to preview mode.
+func TestLoginQRPreservesSESSDATAEncoding(t *testing.T) {
+	successURL := "https://passport.bilibili.com/?SESSDATA=abc%2C123%2Cdef%2A41&bili_jct=j&DedeUserID=1&DedeUserID__ckMd5=m&Expires=0"
+	poll := func(call int) string {
+		return fmt.Sprintf(`{"data":{"code":0,"url":%q}}`, successURL)
+	}
+	f := newFakePassport(t, okGenerate, poll)
+
+	got, err := LoginQR(context.Background(), f.srv.Client())
+	if err != nil {
+		t.Fatalf("LoginQR: %v", err)
+	}
+	if got.SESSDATA != "abc%2C123%2Cdef%2A41" {
+		t.Errorf("SESSDATA was decoded; got %q, want %q", got.SESSDATA, "abc%2C123%2Cdef%2A41")
 	}
 }
 
