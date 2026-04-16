@@ -21,7 +21,24 @@ var (
 	ErrQRExpired = errors.New("qr code expired")
 	// ErrQRCanceled is returned by LoginQR when the user cancels scanning.
 	ErrQRCanceled = errors.New("qr code login canceled by user")
+	// ErrTVTokenExpired is returned by the app-API client when Bilibili
+	// rejects the access token (code 86208 or HTTP 401). Callers should
+	// prompt the user to re-run `bbdown login --tv`.
+	ErrTVTokenExpired = errors.New("tv access token expired")
 )
+
+// TVAuth holds the bearer credentials produced by the TV QR-login flow.
+// The app-API playurl endpoint authenticates with AccessToken (sent as
+// "authorization: identify_v1 <token>"); the rest of the fields are
+// persisted so an expiry hint can be shown without a round-trip.
+type TVAuth struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	MID          int64  `json:"mid"`
+	// ExpiresAt is the absolute unix-seconds timestamp when this token
+	// stops being accepted (= login_time + expires_in).
+	ExpiresAt int64 `json:"expires_at"`
+}
 
 // Cookies holds the Bilibili web-login cookies required for authenticated
 // API access.
@@ -45,6 +62,7 @@ type Cookies struct {
 	DedeUserIDCkMd5 string            `json:"dede_user_id_ck_md5"`
 	Buvid3          string            `json:"buvid3,omitempty"`
 	Extras          map[string]string `json:"extras,omitempty"`
+	TV              *TVAuth           `json:"tv,omitempty"`
 }
 
 // Store writes c to path as JSON with mode 0600. The parent directory must

@@ -250,3 +250,52 @@ func TestStoreLoadRoundTripWithBuvid3(t *testing.T) {
 		t.Fatalf("round-trip mismatch: want %+v, got %+v", want, got)
 	}
 }
+
+func TestStoreLoadRoundTripWithTVAuth(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cookies.json")
+	want := Cookies{
+		SESSDATA:        "s",
+		BiliJCT:         "j",
+		DedeUserID:      "1",
+		DedeUserIDCkMd5: "m",
+		TV: &TVAuth{
+			AccessToken:  "tv-access",
+			RefreshToken: "tv-refresh",
+			MID:          42,
+			ExpiresAt:    1800000000,
+		},
+	}
+	if err := Store(path, want); err != nil {
+		t.Fatalf("Store: %v", err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.TV == nil {
+		t.Fatalf("TV auth missing after round-trip: %+v", got)
+	}
+	if got.TV.AccessToken != "tv-access" || got.TV.MID != 42 {
+		t.Fatalf("TV auth mismatch: %+v", got.TV)
+	}
+}
+
+func TestStoreLoadRoundTripWithoutTVAuth(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cookies.json")
+	want := Cookies{SESSDATA: "s", BiliJCT: "j", DedeUserID: "1", DedeUserIDCkMd5: "m"}
+	if err := Store(path, want); err != nil {
+		t.Fatalf("Store: %v", err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.TV != nil {
+		t.Fatalf("TV auth should be nil when omitted, got %+v", got.TV)
+	}
+}
