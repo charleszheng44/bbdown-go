@@ -347,8 +347,19 @@ func decodePlayurl(raw json.RawMessage, info *PlayInfo) error {
 }
 
 // decodePgcPlayurl handles the pgc/pugv variants, whose payload sometimes
-// nests the DASH data under "video_info".
+// nests the DASH data under "video_info". It also detects the preview-mode
+// response — Bilibili returns code 0 with is_preview=1 and a durl-only MP4
+// clip when the session is not entitled to the full content — and surfaces
+// that as ErrContentLocked rather than leaking an empty-streams state to
+// the planner.
 func decodePgcPlayurl(raw json.RawMessage, info *PlayInfo) error {
+	var peek struct {
+		IsPreview int `json:"is_preview"`
+	}
+	if err := json.Unmarshal(raw, &peek); err == nil && peek.IsPreview == 1 {
+		return fmt.Errorf("%w: playurl returned a preview clip; session is not entitled to this episode", ErrContentLocked)
+	}
+
 	// Try the flat shape first.
 	var p playurlDASH
 	if err := json.Unmarshal(raw, &p); err == nil && (len(p.Dash.Video) > 0 || len(p.Dash.Audio) > 0) {
@@ -360,6 +371,9 @@ func decodePgcPlayurl(raw json.RawMessage, info *PlayInfo) error {
 	}
 	if err := json.Unmarshal(raw, &wrapped); err != nil {
 		return fmt.Errorf("%w: decode pgc playurl: %v", ErrUnknownResponse, err)
+	}
+	if len(wrapped.VideoInfo.Dash.Video) == 0 && len(wrapped.VideoInfo.Dash.Audio) == 0 {
+		return fmt.Errorf("%w: pgc playurl returned no DASH streams", ErrUnknownResponse)
 	}
 	return fillStreams(&wrapped.VideoInfo, info)
 }
