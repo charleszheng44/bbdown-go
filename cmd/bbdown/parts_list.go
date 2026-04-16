@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"os"
 	"text/tabwriter"
 
 	"github.com/charleszheng44/bbdown-go/internal/api"
+	"github.com/charleszheng44/bbdown-go/internal/parser"
+	"github.com/spf13/cobra"
 )
 
 // formatDuration renders a duration in seconds as mm:ss when under one hour
@@ -60,4 +64,40 @@ func renderParts(w io.Writer, title string, parts []api.Part) error {
 		}
 	}
 	return tw.Flush()
+}
+
+// newPartsCmd returns the `bbdown parts <url>` subcommand. It prints an
+// aligned page / duration / title table for the given URL so the user can
+// build a --part specifier. Reuses the same cookie + client setup as the
+// download path.
+func newPartsCmd(flags *rootFlags) *cobra.Command {
+	return &cobra.Command{
+		Use:           "parts <url>",
+		Short:         "List the pages of a Bilibili item",
+		Long:          "Fetch metadata for the given URL or ID and print page number, duration, and title for each page.",
+		Args:          cobra.ExactArgs(1),
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			debugMode = flags.Debug
+			return runParts(cmd.Context(), flags, args[0])
+		},
+	}
+}
+
+func runParts(ctx context.Context, flags *rootFlags, rawURL string) error {
+	cookies, err := loadCookies(flags)
+	if err != nil {
+		return err
+	}
+	client := api.NewClient(cookies.AsJar(), "")
+	target, err := parser.Classify(rawURL)
+	if err != nil {
+		return err
+	}
+	info, err := client.FetchPlayInfo(ctx, target, 1)
+	if err != nil {
+		return err
+	}
+	return renderParts(os.Stdout, info.Title, info.Parts)
 }
