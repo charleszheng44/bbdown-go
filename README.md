@@ -50,7 +50,7 @@ bbdown https://www.bilibili.com/video/BV1xx411c7mD
 
 ## Command Reference
 
-`bbdown` exposes three top-level forms. Run `bbdown --help` for the authoritative, up-to-date flag list.
+`bbdown` exposes four top-level forms. Run `bbdown --help` for the authoritative, up-to-date flag list.
 
 | Command            | Purpose                                                |
 |--------------------|--------------------------------------------------------|
