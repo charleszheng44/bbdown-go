@@ -56,6 +56,7 @@ bbdown https://www.bilibili.com/video/BV1xx411c7mD
 |--------------------|--------------------------------------------------------|
 | `bbdown login`     | Start QR-code login and persist cookies to disk.       |
 | `bbdown logout`    | Delete the stored cookie file.                         |
+| `bbdown parts <url>` | List page numbers, durations, and titles for a multi-part item. |
 | `bbdown <url>`     | Download the given Bilibili URL (or ID).               |
 
 Key flags for `bbdown <url>`:
