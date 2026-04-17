@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -109,7 +108,7 @@ func resolveImportedCookie(stdin io.Reader, stdout io.Writer, flagCookie, cookie
 	}
 	if cookieStdin {
 		fmt.Fprintln(stdout, "Paste the cookie header value from DevTools (Network → any request → Request Headers → cookie), then press Ctrl-D:")
-		b, err := io.ReadAll(bufio.NewReader(stdin))
+		b, err := io.ReadAll(stdin)
 		if err != nil {
 			return "", fmt.Errorf("read cookie from stdin: %w", err)
 		}
