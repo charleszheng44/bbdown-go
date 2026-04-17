@@ -151,6 +151,60 @@ func TestParseCookieString(t *testing.T) {
 	}
 }
 
+// TestAsJarEncodesSESSDATACommas guards the one behaviour Bilibili's
+// server is strict about: SESSDATA's comma separators must travel on
+// the wire as the literal three-character sequence "%2C". A raw comma
+// in the Cookie header makes the server truncate or reject the value,
+// causing pgc/pugv playurl to return preview-only responses for
+// purchased content. The encoding is applied at send time by AsJar, so
+// existing cookies.json files (which store raw commas as extracted
+// from the passport redirect URL) keep working without re-login.
+func TestAsJarEncodesSESSDATACommas(t *testing.T) {
+	t.Parallel()
+
+	raw := "b41a5c15,1791866058,ce3a6*41"
+	c := Cookies{SESSDATA: raw, BiliJCT: "j", DedeUserID: "1", DedeUserIDCkMd5: "m"}
+	jar := c.AsJar()
+	u, _ := url.Parse("https://api.bilibili.com/x/web-interface/nav")
+
+	var sess string
+	for _, ck := range jar.Cookies(u) {
+		if ck.Name == "SESSDATA" {
+			sess = ck.Value
+			break
+		}
+	}
+	want := "b41a5c15%2C1791866058%2Cce3a6*41"
+	if sess != want {
+		t.Fatalf("SESSDATA on wire = %q, want %q", sess, want)
+	}
+}
+
+// TestAsJarSESSDATAEncodingIsIdempotent verifies that a caller supplying
+// an already-encoded SESSDATA (e.g. pasted from DevTools "Request
+// Headers → cookie:") is not double-encoded. %25 on the wire would be
+// treated as a literal %, breaking auth in the same way a raw comma
+// does.
+func TestAsJarSESSDATAEncodingIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	encoded := "b41a5c15%2C1791866058%2Cce3a6*41"
+	c := Cookies{SESSDATA: encoded, BiliJCT: "j", DedeUserID: "1", DedeUserIDCkMd5: "m"}
+	jar := c.AsJar()
+	u, _ := url.Parse("https://api.bilibili.com/x/web-interface/nav")
+
+	var sess string
+	for _, ck := range jar.Cookies(u) {
+		if ck.Name == "SESSDATA" {
+			sess = ck.Value
+			break
+		}
+	}
+	if sess != encoded {
+		t.Fatalf("SESSDATA was re-encoded; got %q, want %q (unchanged)", sess, encoded)
+	}
+}
+
 func TestAsJarPopulatesAPICookies(t *testing.T) {
 	t.Parallel()
 
