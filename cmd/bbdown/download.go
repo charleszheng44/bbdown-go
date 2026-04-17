@@ -47,6 +47,7 @@ func runDownload(ctx context.Context, flags *rootFlags, args []string) error {
 	client := api.NewClient(cookies.AsJar(), "")
 	if cookies.TV != nil {
 		client.SetAppAuth(cookies.TV)
+		appAuthConfigured = true
 	}
 	httpc := &http.Client{
 		Jar:     cookies.AsJar(),

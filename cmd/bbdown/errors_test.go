@@ -15,18 +15,19 @@ import (
 
 func TestFormatError(t *testing.T) {
 	tests := []struct {
-		name    string
-		err     error
-		want    string
-		substr  bool // if true, want is a substring match
-		inDebug bool
+		name     string
+		err      error
+		want     string
+		substr   bool // if true, want is a substring match
+		inDebug  bool
+		tvAuthed bool
 	}{
 		{name: "nil", err: nil, want: ""},
 		{name: "not_logged_in", err: auth.ErrNotLoggedIn, want: "Not logged in. Run `bbdown login` first."},
 		{name: "qr_expired", err: auth.ErrQRExpired, want: "QR code expired. Run `bbdown login` again."},
 		{name: "qr_canceled", err: auth.ErrQRCanceled, want: "Login canceled."},
-		{name: "content_locked", err: api.ErrContentLocked, want: "This content requires a purchase or is region-locked."},
-		{name: "content_locked_wrapped", err: fmt.Errorf("%w: 87008", api.ErrContentLocked), want: "This content requires a purchase or is region-locked."},
+		{name: "content_locked", err: api.ErrContentLocked, tvAuthed: true, want: "This content requires a purchase or is region-locked."},
+		{name: "content_locked_wrapped", err: fmt.Errorf("%w: 87008", api.ErrContentLocked), tvAuthed: true, want: "This content requires a purchase or is region-locked."},
 		{name: "rate_limited", err: api.ErrRateLimited, want: "Rate-limited by Bilibili. Retry after a short wait."},
 		{name: "unknown_response", err: api.ErrUnknownResponse, want: "Unexpected response from Bilibili", substr: true},
 		{name: "unknown_response_debug", err: fmt.Errorf("%w: code 12345", api.ErrUnknownResponse), want: "Unexpected Bilibili response", substr: true, inDebug: true},
@@ -40,12 +41,19 @@ func TestFormatError(t *testing.T) {
 		{name: "parts_spec", err: fmt.Errorf("%w: page 99 exceeds total 3", ErrPartSpec), want: "invalid --part specifier", substr: true},
 		{name: "disk_full", err: errors.New("write /tmp/foo: no space left on device"), want: "Out of disk space", substr: true},
 		{name: "generic", err: errors.New("random failure"), want: "random failure"},
+		{name: "content_locked_without_tv_auth", err: api.ErrContentLocked, tvAuthed: false, want: "bbdown login --tv", substr: true},
+		{name: "content_locked_with_tv_auth", err: api.ErrContentLocked, tvAuthed: true, want: "requires a purchase or is region-locked", substr: true},
+		{name: "tv_token_expired", err: auth.ErrTVTokenExpired, want: "TV access token expired", substr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			prev := debugMode
 			debugMode = tt.inDebug
 			defer func() { debugMode = prev }()
+
+			prevAppAuthed := appAuthConfigured
+			appAuthConfigured = tt.tvAuthed
+			defer func() { appAuthConfigured = prevAppAuthed }()
 
 			got := formatError(tt.err)
 			if tt.substr {

@@ -50,12 +50,13 @@ bbdown https://www.bilibili.com/video/BV1xx411c7mD
 
 ## Command Reference
 
-`bbdown` exposes four top-level forms. Run `bbdown --help` for the authoritative, up-to-date flag list.
+`bbdown` exposes five top-level forms. Run `bbdown --help` for the authoritative, up-to-date flag list.
 
 | Command                | Purpose                                                          |
 |------------------------|------------------------------------------------------------------|
 | `bbdown login`         | Start QR-code login and persist cookies to disk.                 |
-| `bbdown logout`        | Delete the stored cookie file.                                   |
+| `bbdown login --tv`    | One-time TV-QR scan, enables app-API fallback for paid content.  |
+| `bbdown logout`        | Delete the stored cookie file (web + TV).                        |
 | `bbdown parts <url>`   | List page numbers, durations, and titles for a multi-part item.  |
 | `bbdown <url>`         | Download the given Bilibili URL (or ID).                         |
 
@@ -94,6 +95,14 @@ $XDG_CONFIG_HOME/bbdown/cookies.json
 ```
 
 On Linux this typically resolves to `~/.config/bbdown/cookies.json`; on macOS and Windows the equivalent per-user config directory is used. The file is created with mode `0600` (readable only by the owning user). Treat it as a secret — anyone with this file can access your Bilibili account.
+
+For purchased bangumi or cheese (course) content whose web playurl only
+returns a preview clip, run `bbdown login --tv` once to scan a second QR
+code from your phone's Bilibili app. The resulting access token is saved
+alongside the web cookies and used automatically whenever the web path
+would otherwise return "This content requires a purchase or is
+region-locked". The `--tv` name refers to the authentication endpoint
+(a QR flow originally used by smart-TV clients), not to a content type.
 
 To remove the stored cookies:
 

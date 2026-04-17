@@ -27,8 +27,14 @@ func formatError(err error) string {
 		return "QR code expired. Run `bbdown login` again."
 	case errors.Is(err, auth.ErrQRCanceled):
 		return "Login canceled."
+	case errors.Is(err, auth.ErrTVTokenExpired):
+		return "TV access token expired. Re-run `bbdown login --tv`."
 	case errors.Is(err, api.ErrContentLocked):
-		return "This content requires a purchase or is region-locked."
+		msg := "This content requires a purchase or is region-locked."
+		if !appAuthConfigured {
+			msg += " Run `bbdown login --tv` to enable the app-API fallback for purchased bangumi/cheese."
+		}
+		return msg
 	case errors.Is(err, api.ErrRateLimited):
 		return "Rate-limited by Bilibili. Retry after a short wait."
 	case errors.Is(err, api.ErrUnknownResponse):

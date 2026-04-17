@@ -37,6 +37,11 @@ type rootFlags struct {
 // package-level variable so formatError can stay a pure function of err.
 var debugMode bool
 
+// appAuthConfigured mirrors whether a TV access token is currently attached to
+// api.Client. Set by runDownload and runParts after SetAppAuth; read by
+// formatError to decide whether to append a login --tv hint on ErrContentLocked.
+var appAuthConfigured bool
+
 // newRootCmd constructs the top-level cobra command and its children.
 func newRootCmd(flags *rootFlags) *cobra.Command {
 	cmd := &cobra.Command{
