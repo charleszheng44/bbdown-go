@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/charleszheng44/bbdown-go/internal/auth"
 )
 
 // Endpoint bases. Exposed as package-level variables (not constants) so tests
@@ -54,6 +56,11 @@ type Client struct {
 	mixinTTL time.Duration
 	// now is overridable in tests. Production always uses time.Now.
 	now func() time.Time
+
+	// appAuth carries a TV access token used by fetchViaApp. nil when
+	// the caller has not configured app-API fallback; fetchViaApp is
+	// skipped in that case.
+	appAuth *auth.TVAuth
 }
 
 // NewClient returns a Client backed by net/http. jar may be nil, in which
@@ -74,6 +81,12 @@ func NewClient(jar http.CookieJar, ua string) *Client {
 		now:      time.Now,
 	}
 }
+
+// SetAppAuth attaches a TV access token to the client. When set,
+// fetchBangumi/fetchCourse will fall back to the app-API PlayView
+// endpoint on ErrContentLocked from the web decoder. Passing nil
+// disables fallback.
+func (c *Client) SetAppAuth(a *auth.TVAuth) { c.appAuth = a }
 
 // envelope models the common Bilibili response shape. Every endpoint we
 // consume wraps its payload in {code, message, data}.
