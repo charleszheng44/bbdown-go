@@ -94,6 +94,7 @@ func runParts(ctx context.Context, w io.Writer, flags *rootFlags, rawURL string)
 		return err
 	}
 	client := api.NewClient(cookies.AsJar(), "")
+	appAuthConfigured = false
 	if cookies.TV != nil {
 		client.SetAppAuth(cookies.TV)
 		appAuthConfigured = true
