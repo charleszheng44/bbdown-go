@@ -86,7 +86,7 @@ func (c Cookies) AsJar() http.CookieJar {
 	jar, _ := cookiejar.New(nil) // New with nil options never returns an error.
 	u, _ := url.Parse("https://api.bilibili.com/")
 	cookies := []*http.Cookie{
-		{Name: "SESSDATA", Value: c.SESSDATA},
+		{Name: "SESSDATA", Value: encodeCookieValue(c.SESSDATA)},
 		{Name: "bili_jct", Value: c.BiliJCT},
 		{Name: "DedeUserID", Value: c.DedeUserID},
 		{Name: "DedeUserID__ckMd5", Value: c.DedeUserIDCkMd5},
@@ -102,6 +102,18 @@ func (c Cookies) AsJar() http.CookieJar {
 	}
 	jar.SetCookies(u, cookies)
 	return jar
+}
+
+// encodeCookieValue percent-escapes characters RFC 6265 forbids in a
+// cookie value (notably commas — Bilibili's SESSDATA contains them as
+// delimiters and the server expects them URL-encoded on the wire).
+// Only raw commas are replaced; existing "%2C" sequences are left
+// alone, so the function is idempotent even when the caller supplies
+// an already-encoded value (e.g. a paste of a browser cookie header).
+// Asterisks and other chars that browsers sometimes encode as %2A are
+// accepted by Bilibili both ways, so we leave them untouched.
+func encodeCookieValue(v string) string {
+	return strings.ReplaceAll(v, ",", "%2C")
 }
 
 // isReservedCookieName reports whether k collides with a named field on
