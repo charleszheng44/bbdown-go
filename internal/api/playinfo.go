@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"sort"
 	"strconv"
 	"time"
@@ -305,17 +306,23 @@ func (c *Client) fetchCourse(ctx context.Context, t parser.Target, page int) (Pl
 // playurl URLs. Overridable in tests for reproducible query strings.
 var wtsNow = func() int64 { return time.Now().Unix() }
 
-// bangumiPlayQuery builds the query string for the /pgc and /pugv v2
-// playurl endpoints. The param set (and ordering) mirrors the upstream
-// BBDown implementation, which is what Bilibili's current web front-end
-// sends. Some of these (support_multi_audio, from_client, module,
-// session, wts) appear redundant but are treated as a signal that the
-// caller is a legitimate web client; the older endpoint without them
-// silently downgrades purchased content to preview-only clips.
+// bangumiPlayQuery builds the query string used for BOTH pgc v2 and pugv
+// v1 playurl. The param set (including the key ordering and the literal
+// module=bangumi) mirrors the upstream BBDown implementation and what
+// Bilibili's current web front-end sends; the server treats the full set
+// as a legitimacy signal and downgrades purchased content to preview-
+// only clips when any of support_multi_audio / from_client / module /
+// session / wts is absent. module=bangumi is correct for pugv too:
+// Bilibili does not dispatch on this value, and both upstream BBDown and
+// the web client send it verbatim on the cheese path.
+//
+// aid, cid, and epid are always numeric IDs minted by Bilibili's own
+// metadata API, but values are percent-encoded defensively so a
+// malformed upstream response can't corrupt the query string.
 func bangumiPlayQuery(aid, cid, epid string) string {
 	return fmt.Sprintf(
 		"support_multi_audio=true&from_client=BROWSER&avid=%s&cid=%s&fnval=4048&fnver=0&fourk=1&otype=json&qn=0&module=bangumi&ep_id=%s&session=&wts=%d",
-		aid, cid, epid, wtsNow(),
+		url.QueryEscape(aid), url.QueryEscape(cid), url.QueryEscape(epid), wtsNow(),
 	)
 }
 
