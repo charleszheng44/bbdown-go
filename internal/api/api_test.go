@@ -492,6 +492,42 @@ func TestFetchSubtitle_EndToEnd(t *testing.T) {
 	}
 }
 
+// TestBangumiPlayQueryDeterministic exercises the wtsNow hook and pins the
+// full query-string shape that goes to /pgc/player/web/v2/playurl and
+// /pugv/player/web/playurl. Key ordering here is load-bearing — the
+// Bilibili server treats the full param set (and implicitly the canonical
+// ordering it receives from the web client) as a legitimacy signal; a
+// regression that reorders keys or drops one would silently downgrade
+// purchased content to preview-only clips.
+func TestBangumiPlayQueryDeterministic(t *testing.T) {
+	prev := wtsNow
+	wtsNow = func() int64 { return 1700000000 }
+	defer func() { wtsNow = prev }()
+
+	got := bangumiPlayQuery("111", "222", "333")
+	want := "support_multi_audio=true&from_client=BROWSER&avid=111&cid=222&fnval=4048&fnver=0&fourk=1&otype=json&qn=0&module=bangumi&ep_id=333&session=&wts=1700000000"
+	if got != want {
+		t.Errorf("bangumiPlayQuery mismatch:\n got: %s\nwant: %s", got, want)
+	}
+}
+
+// TestBangumiPlayQueryEscapesValues confirms aid/cid/epid pass through
+// url.QueryEscape, so a malformed upstream ID containing '&' or '=' cannot
+// corrupt the query string. Bilibili's own metadata API only returns
+// numeric IDs, so this is purely defensive.
+func TestBangumiPlayQueryEscapesValues(t *testing.T) {
+	prev := wtsNow
+	wtsNow = func() int64 { return 0 }
+	defer func() { wtsNow = prev }()
+
+	got := bangumiPlayQuery("a&b", "c=d", "e f")
+	for _, want := range []string{"avid=a%26b", "cid=c%3Dd", "ep_id=e+f"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected %q in query, got %s", want, got)
+		}
+	}
+}
+
 // TestClassifyErrEdge verifies ErrContentLocked without a message still wraps.
 func TestClassifyErrEdge(t *testing.T) {
 	err := classifyCode(62002, "")
