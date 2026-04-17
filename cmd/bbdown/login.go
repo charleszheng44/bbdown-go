@@ -82,7 +82,7 @@ func newLoginCmd(flags *rootFlags) *cobra.Command {
 // resolveImportedCookie returns the cookie string to persist, or "" if
 // the caller wants the QR flow. At most one of flagCookie / cookieFile /
 // cookieStdin may be set; zero means QR.
-func resolveImportedCookie(stdin io.Reader, stdout io.Writer, flagCookie, cookieFile string, cookieStdin bool) (string, error) {
+func resolveImportedCookie(stdin io.Reader, promptOut io.Writer, flagCookie, cookieFile string, cookieStdin bool) (string, error) {
 	set := 0
 	if flagCookie != "" {
 		set++
@@ -107,7 +107,7 @@ func resolveImportedCookie(stdin io.Reader, stdout io.Writer, flagCookie, cookie
 		return strings.TrimSpace(string(b)), nil
 	}
 	if cookieStdin {
-		fmt.Fprintln(stdout, "Paste the cookie header value from DevTools (Network → any request → Request Headers → cookie), then press Ctrl-D:")
+		fmt.Fprintln(promptOut, "Paste the cookie header value from DevTools (Network → any request → Request Headers → cookie), then press Ctrl-D:")
 		b, err := io.ReadAll(stdin)
 		if err != nil {
 			return "", fmt.Errorf("read cookie from stdin: %w", err)

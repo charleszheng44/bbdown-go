@@ -212,6 +212,9 @@ func TestLoginQRPreservesSESSDATAEncoding(t *testing.T) {
 	if got.SESSDATA != "abc%2C123%2Cdef%2A41" {
 		t.Errorf("SESSDATA was decoded; got %q, want %q", got.SESSDATA, "abc%2C123%2Cdef%2A41")
 	}
+	if got.Buvid3 != "bv3-test" {
+		t.Errorf("Buvid3 = %q, want %q", got.Buvid3, "bv3-test")
+	}
 }
 
 func TestLoginQRSuccessMissingCookie(t *testing.T) {
