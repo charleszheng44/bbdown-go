@@ -558,3 +558,94 @@ func TestFetchPlayInfo_CoursePreviewFallsBackToApp(t *testing.T) {
 		}
 	})
 }
+
+// TestFetchPlayInfo_BangumiPreviewFallsBackToApp mirrors the course test
+// for the pgc path so a future copy-paste error in fetchBangumi is caught.
+func TestFetchPlayInfo_BangumiPreviewFallsBackToApp(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/pgc/view/web/season", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write(envelopeOK(map[string]any{
+			"title":    "Show",
+			"episodes": []map[string]any{{"ep_id": 1, "cid": 10, "aid": 20, "title": "E"}},
+		}))
+	})
+	mux.HandleFunc("/pgc/player/web/v2/playurl", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write(envelopeOK(map[string]any{
+			"is_preview": 1, "type": "MP4",
+			"durl": []map[string]any{{"url": "https://preview/clip.mp4"}},
+		}))
+	})
+	mux.HandleFunc("/bilibili.pgc.gateway.player.v2.PlayURL/PlayView", func(w http.ResponseWriter, _ *http.Request) {
+		reply := &appproto.PlayViewReply{
+			VideoInfo: &appproto.VideoInfo{
+				StreamList: []*appproto.StreamItem{{
+					StreamInfo: &appproto.StreamInfo{Quality: 80, Description: "1080P"},
+					DashVideo:  &appproto.DashVideo{BaseUrl: "https://app-cdn/bangumi.m4s", Bandwidth: 2_000_000, Codecid: 7, Size: 1},
+				}},
+				DashAudio: []*appproto.DashItem{{Id: 30280, BaseUrl: "https://app-cdn/bangumi-a.m4s", Bandwidth: 128_000}},
+			},
+		}
+		b, _ := proto.Marshal(reply)
+		w.Header().Set("Content-Type", "application/grpc")
+		w.Write(packFrame(b, true))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	withAllBases(t, srv.URL, func() {
+		origApp := appBase
+		appBase = srv.URL
+		defer func() { appBase = origApp }()
+
+		c := NewClient(nil, "")
+		c.SetAppAuth(&auth.TVAuth{AccessToken: "t"})
+		info, err := c.FetchPlayInfo(context.Background(), parser.Target{Kind: parser.KindBangumi, EPID: "1"}, 1)
+		if err != nil {
+			t.Fatalf("FetchPlayInfo: %v", err)
+		}
+		if len(info.Videos) != 1 || info.Videos[0].BaseURL != "https://app-cdn/bangumi.m4s" {
+			t.Fatalf("expected app-side stream, got %+v", info.Videos)
+		}
+	})
+}
+
+// TestFetchPlayInfo_CourseAppFallbackAlsoFailsReturnsOriginal guards the
+// "app call also failed → propagate original web error" fall-through in
+// fetchCourse/fetchBangumi. The user must see the familiar web-side
+// content-locked message, not the app-side failure.
+func TestFetchPlayInfo_CourseAppFallbackAlsoFailsReturnsOriginal(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/pugv/view/web/season", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write(envelopeOK(map[string]any{
+			"title":    "Course",
+			"episodes": []map[string]any{{"id": 77, "cid": 700, "aid": 8000, "title": "Lesson"}},
+		}))
+	})
+	mux.HandleFunc("/pugv/player/web/playurl", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write(envelopeOK(map[string]any{
+			"is_preview": 1, "type": "MP4",
+			"durl": []map[string]any{{"url": "https://preview/clip.mp4"}},
+		}))
+	})
+	mux.HandleFunc("/bilibili.pgc.gateway.player.v2.PlayURL/PlayView", func(w http.ResponseWriter, _ *http.Request) {
+		// App endpoint also rejects — here as HTTP 500, which fetchViaApp
+		// surfaces as ErrUnknownResponse. fetchCourse should ignore that
+		// error and return the original ErrContentLocked to the caller.
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	withAllBases(t, srv.URL, func() {
+		origApp := appBase
+		appBase = srv.URL
+		defer func() { appBase = origApp }()
+
+		c := NewClient(nil, "")
+		c.SetAppAuth(&auth.TVAuth{AccessToken: "t"})
+		_, err := c.FetchPlayInfo(context.Background(), parser.Target{Kind: parser.KindCourse, EPID: "77"}, 1)
+		if !errors.Is(err, ErrContentLocked) {
+			t.Fatalf("want ErrContentLocked, got %v", err)
+		}
+	})
+}
