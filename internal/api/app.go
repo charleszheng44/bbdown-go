@@ -44,6 +44,15 @@ const (
 // the decoded reply into a PlayInfo with Videos/Audios populated. It
 // requires c.appAuth to be non-nil; callers (fetchBangumi / fetchCourse)
 // gate on that before invoking.
+//
+// NOTE: Bilibili's app endpoint can return non-zero result codes
+// (e.g. 87008 "course not purchased", 86208 "token expired") embedded
+// in a response body or gRPC trailer rather than via HTTP status. The
+// wire format for those has not been observed yet; until it is, only
+// HTTP-level failures (401, 412, other non-2xx) are classified. If a
+// --debug session surfaces preview-like empty replies from the app
+// endpoint, file an issue with the dumped frame so this mapping can
+// be extended.
 func (c *Client) fetchViaApp(ctx context.Context, epid, cid string) (PlayInfo, error) {
 	if c.appAuth == nil {
 		return PlayInfo{}, fmt.Errorf("%w: app auth not configured", ErrUnknownResponse)

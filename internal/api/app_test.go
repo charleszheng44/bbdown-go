@@ -119,6 +119,23 @@ func TestFetchViaAppHTTP401TokenExpired(t *testing.T) {
 	}
 }
 
+func TestFetchViaAppHTTP412RateLimited(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusPreconditionFailed)
+	}))
+	defer srv.Close()
+	origBase := appBase
+	appBase = srv.URL
+	defer func() { appBase = origBase }()
+
+	c := NewClient(nil, "")
+	c.SetAppAuth(&auth.TVAuth{AccessToken: "t"})
+	_, err := c.fetchViaApp(context.Background(), "1", "2")
+	if !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("got %v, want ErrRateLimited", err)
+	}
+}
+
 // TestFetchViaAppSuccessWithFixture reads a pre-baked .bin file so the
 // decoding path is exercised against bytes that were once emitted by
 // proto.Marshal, guarding against silent breakage if the reply shape
