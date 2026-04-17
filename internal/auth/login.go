@@ -111,7 +111,14 @@ type fingerSPIResponse struct {
 // fetchBuvid3 calls /x/frontend/finger/spi and returns the b_3 value.
 // Bilibili's web front-end uses this endpoint to seed fresh buvid3/buvid4
 // cookies on first visit; we call it once at login time and persist b_3.
+//
+// LoginQR already normalizes a nil *http.Client to http.DefaultClient, but
+// fetchBuvid3 repeats the guard so a future caller can't accidentally
+// introduce a nil-receiver panic.
 func fetchBuvid3(ctx context.Context, client *http.Client) (string, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
 	endpoint := apiBase + "/x/frontend/finger/spi"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -262,6 +269,11 @@ func cookiesFromSuccessURL(raw string) (Cookies, error) {
 // not decode %2C, %2A, or any other percent-escapes — the caller gets the
 // byte sequence the server sent, suitable for direct re-emission in a
 // Cookie header.
+//
+// Assumes rawQuery is well-formed: any literal '&' inside a value must be
+// percent-encoded (which RFC 3986 requires and Bilibili's passport
+// redirect honors). A stray unencoded '&' would truncate the returned
+// value at the first '&'. The first match wins if key appears twice.
 func rawQueryParam(rawQuery, key string) string {
 	prefix := key + "="
 	for _, pair := range strings.Split(rawQuery, "&") {
