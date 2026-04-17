@@ -81,7 +81,10 @@ func newLoginCmd(flags *rootFlags) *cobra.Command {
 
 // resolveImportedCookie returns the cookie string to persist, or "" if
 // the caller wants the QR flow. At most one of flagCookie / cookieFile /
-// cookieStdin may be set; zero means QR.
+// cookieStdin may be set; zero means QR. An empty flagCookie ("" passed
+// explicitly, e.g. --cookie=”) is treated as unset and also falls
+// through to QR — callers that want to reject an explicit empty value
+// should do so upstream.
 func resolveImportedCookie(stdin io.Reader, promptOut io.Writer, flagCookie, cookieFile string, cookieStdin bool) (string, error) {
 	set := 0
 	if flagCookie != "" {
