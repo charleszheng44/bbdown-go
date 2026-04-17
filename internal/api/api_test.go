@@ -11,7 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charleszheng44/bbdown-go/internal/api/appproto"
+	"github.com/charleszheng44/bbdown-go/internal/auth"
 	"github.com/charleszheng44/bbdown-go/internal/parser"
+	"google.golang.org/protobuf/proto"
 )
 
 // Identifiers for the three base-URL package vars so tests can rebind a
@@ -502,4 +505,56 @@ func TestClassifyErrEdge(t *testing.T) {
 	if !errors.Is(err, ErrUnknownResponse) {
 		t.Errorf("classifyCode(0, \"\") = %v, want wrapped ErrUnknownResponse", err)
 	}
+}
+
+// TestFetchPlayInfo_CoursePreviewFallsBackToApp verifies that a pugv
+// preview response (is_preview=1) triggers a PlayView call when
+// Client.SetAppAuth has been called, and that the app-side streams are
+// returned.
+func TestFetchPlayInfo_CoursePreviewFallsBackToApp(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/pugv/view/web/season", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write(envelopeOK(map[string]any{
+			"title":    "Course",
+			"episodes": []map[string]any{{"id": 77, "cid": 700, "aid": 8000, "title": "Lesson"}},
+		}))
+	})
+	mux.HandleFunc("/pugv/player/web/playurl", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write(envelopeOK(map[string]any{
+			"is_preview": 1, "type": "MP4",
+			"durl": []map[string]any{{"url": "https://preview/clip.mp4"}},
+		}))
+	})
+	mux.HandleFunc("/bilibili.pgc.gateway.player.v2.PlayURL/PlayView", func(w http.ResponseWriter, _ *http.Request) {
+		reply := &appproto.PlayViewReply{
+			VideoInfo: &appproto.VideoInfo{
+				StreamList: []*appproto.StreamItem{{
+					StreamInfo: &appproto.StreamInfo{Quality: 80, Description: "1080P"},
+					DashVideo:  &appproto.DashVideo{BaseUrl: "https://app-cdn/v.m4s", Bandwidth: 2_000_000, Codecid: 7, Size: 1},
+				}},
+				DashAudio: []*appproto.DashItem{{Id: 30280, BaseUrl: "https://app-cdn/a.m4s", Bandwidth: 128_000}},
+			},
+		}
+		b, _ := proto.Marshal(reply)
+		w.Header().Set("Content-Type", "application/grpc")
+		w.Write(packFrame(b, true))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	withAllBases(t, srv.URL, func() {
+		origApp := appBase
+		appBase = srv.URL
+		defer func() { appBase = origApp }()
+
+		c := NewClient(nil, "")
+		c.SetAppAuth(&auth.TVAuth{AccessToken: "t"})
+		info, err := c.FetchPlayInfo(context.Background(), parser.Target{Kind: parser.KindCourse, EPID: "77"}, 1)
+		if err != nil {
+			t.Fatalf("FetchPlayInfo: %v", err)
+		}
+		if len(info.Videos) != 1 || info.Videos[0].BaseURL != "https://app-cdn/v.m4s" {
+			t.Fatalf("expected app-side stream, got %+v", info.Videos)
+		}
+	})
 }

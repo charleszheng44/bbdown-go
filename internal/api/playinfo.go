@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -207,6 +208,19 @@ func (c *Client) fetchBangumi(ctx context.Context, t parser.Target, page int) (P
 	// payload() already handled that distinction, but some responses double-
 	// wrap under a nested "video_info" key. Handle both.
 	if err := decodePgcPlayurl(playRaw, &info); err != nil {
+		if errors.Is(err, ErrContentLocked) && c.appAuth != nil {
+			appInfo, appErr := c.fetchViaApp(ctx, info.EPID, info.CID)
+			if appErr == nil {
+				// Preserve the title/parts/subtitles we already resolved
+				// from the season endpoint; only the streams come from
+				// the app reply.
+				info.Videos = appInfo.Videos
+				info.Audios = appInfo.Audios
+				return info, nil
+			}
+			// Fall through: if the app call also failed, propagate the
+			// original web error so users see the familiar message.
+		}
 		return PlayInfo{}, err
 	}
 	return info, nil
@@ -296,6 +310,19 @@ func (c *Client) fetchCourse(ctx context.Context, t parser.Target, page int) (Pl
 		return PlayInfo{}, err
 	}
 	if err := decodePgcPlayurl(playRaw, &info); err != nil {
+		if errors.Is(err, ErrContentLocked) && c.appAuth != nil {
+			appInfo, appErr := c.fetchViaApp(ctx, info.EPID, info.CID)
+			if appErr == nil {
+				// Preserve the title/parts/subtitles we already resolved
+				// from the season endpoint; only the streams come from
+				// the app reply.
+				info.Videos = appInfo.Videos
+				info.Audios = appInfo.Audios
+				return info, nil
+			}
+			// Fall through: if the app call also failed, propagate the
+			// original web error so users see the familiar message.
+		}
 		return PlayInfo{}, err
 	}
 	return info, nil

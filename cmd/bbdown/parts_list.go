@@ -94,6 +94,9 @@ func runParts(ctx context.Context, w io.Writer, flags *rootFlags, rawURL string)
 		return err
 	}
 	client := api.NewClient(cookies.AsJar(), "")
+	if cookies.TV != nil {
+		client.SetAppAuth(cookies.TV)
+	}
 	target, err := parser.Classify(rawURL)
 	if err != nil {
 		return err

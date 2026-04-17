@@ -45,6 +45,9 @@ func runDownload(ctx context.Context, flags *rootFlags, args []string) error {
 	}
 
 	client := api.NewClient(cookies.AsJar(), "")
+	if cookies.TV != nil {
+		client.SetAppAuth(cookies.TV)
+	}
 	httpc := &http.Client{
 		Jar:     cookies.AsJar(),
 		Timeout: 0, // streamed downloads manage their own timeouts
