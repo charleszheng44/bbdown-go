@@ -145,7 +145,7 @@ func processURL(ctx context.Context, client *api.Client, httpc *http.Client, fla
 	if len(pages) == 0 {
 		pages = []int{1}
 	}
-	multi := len(pages) > 1
+	multi := len(baseInfo.Parts) > 1
 
 	template := flags.Name
 	if multi {
