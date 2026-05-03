@@ -28,7 +28,10 @@ Under active development. Track progress and open issues at <https://github.com/
 - [ffmpeg](https://ffmpeg.org/) available on your `PATH` (used for muxing video, audio, and subtitles into MP4).
   - macOS: `brew install ffmpeg`
   - Debian/Ubuntu: `sudo apt install ffmpeg`
-  - Windows: `winget install Gyan.FFmpeg` (or download a build from <https://ffmpeg.org/download.html>)
+  - Fedora: `sudo dnf install ffmpeg`
+  - Arch: `sudo pacman -S ffmpeg`
+  - Windows: `winget install Gyan.FFmpeg` (or `Gyan.FFmpeg.Essentials` for a smaller build, or download from <https://ffmpeg.org/download.html>)
+  - Verify after install: `ffmpeg -version` should print version info. The most common failure mode is "installed but not on `PATH`".
 
 ## Install
 
