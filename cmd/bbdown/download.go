@@ -315,15 +315,22 @@ func processPart(ctx context.Context, client *api.Client, httpc *http.Client, fl
 	defer mgr.Wait()
 
 	multiPart := len(info.Parts) > 1
+	// When parts run concurrently every progress line needs to identify
+	// its part; otherwise they all look like "video:"/"audio:" and you
+	// can't tell which is which. The "p<page> " prefix mirrors the
+	// header line printed below.
+	videoLabel, audioLabel := "video", "audio"
 	if multiPart {
 		mgr.Println("Part %d/%d: %s", page, len(info.Parts), pageTitle)
+		videoLabel = fmt.Sprintf("p%d video", page)
+		audioLabel = fmt.Sprintf("p%d audio", page)
 	}
 
 	var wg sync.WaitGroup
 	errCh := make(chan error, 3)
 
 	if sel.Video != nil && !flags.AudioOnly {
-		videoTr := mgr.Track("video", -1)
+		videoTr := mgr.Track(videoLabel, -1)
 		videoOpts := dlOpts
 		videoOpts.OnProgress = videoTr.Update
 		wg.Add(1)
@@ -339,7 +346,7 @@ func processPart(ctx context.Context, client *api.Client, httpc *http.Client, fl
 	}
 
 	if sel.Audio != nil && !flags.VideoOnly {
-		audioTr := mgr.Track("audio", -1)
+		audioTr := mgr.Track(audioLabel, -1)
 		audioOpts := dlOpts
 		audioOpts.OnProgress = audioTr.Update
 		wg.Add(1)
