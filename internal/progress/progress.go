@@ -119,9 +119,9 @@ func (realClock) Now() time.Time { return time.Now() }
 
 type noopManager struct{}
 
-func (noopManager) Track(string, int64) Tracker      { return noopTracker{} }
-func (noopManager) Println(string, ...any)           {}
-func (noopManager) Wait()                             {}
+func (noopManager) Track(string, int64) Tracker { return noopTracker{} }
+func (noopManager) Println(string, ...any)      {}
+func (noopManager) Wait()                       {}
 
 type noopTracker struct{}
 

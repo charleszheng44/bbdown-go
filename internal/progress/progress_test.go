@@ -17,9 +17,9 @@ func TestParseMode(t *testing.T) {
 		{"always", ModeAlways, false},
 		{"never", ModeNever, false},
 		{"plain", ModePlain, false},
-		{"AUTO", ModeAuto, false},   // case-insensitive
-		{"", 0, true},                // empty rejected
-		{"verbose", 0, true},         // unknown rejected
+		{"AUTO", ModeAuto, false}, // case-insensitive
+		{"", 0, true},             // empty rejected
+		{"verbose", 0, true},      // unknown rejected
 	}
 	for _, c := range cases {
 		got, err := ParseMode(c.in)
@@ -107,6 +107,5 @@ func countContaining(lines []string, sub string) int {
 
 type fakeClock struct{ now time.Time }
 
-func (c *fakeClock) Now() time.Time            { return c.now }
-func (c *fakeClock) advance(d time.Duration)   { c.now = c.now.Add(d) }
-
+func (c *fakeClock) Now() time.Time          { return c.now }
+func (c *fakeClock) advance(d time.Duration) { c.now = c.now.Add(d) }
