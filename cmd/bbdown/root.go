@@ -97,7 +97,7 @@ func newRootCmd(flags *rootFlags) *cobra.Command {
 	cmd.PersistentFlags().IntVar(&flags.Threads, "threads", 8,
 		"per-file parallel download workers")
 	cmd.PersistentFlags().IntVar(&flags.Concurrency, "concurrency", 2,
-		"concurrent items when using --batch-file")
+		"concurrent items: parts within one URL, or URLs when --batch-file is set")
 	cmd.PersistentFlags().BoolVar(&flags.Debug, "debug", false,
 		"verbose logs on stderr, raw API dumps on errors")
 	cmd.PersistentFlags().StringVar(&flags.BatchFile, "batch-file", "",
