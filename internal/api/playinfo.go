@@ -92,7 +92,15 @@ func (c *Client) fetchRegular(ctx context.Context, t parser.Target, page int) (P
 		})
 	}
 	for _, s := range v.Subtitle.List {
-		info.Subtitles = append(info.Subtitles, Subtitle{Lang: s.Lan, URL: normalizeSubURL(s.URL)})
+		// Bilibili's view endpoint sometimes lists a language with an empty
+		// subtitle_url (AI-generated tracks resolved only via /x/player/v2,
+		// or tracks gated on SESSDATA). Skip these so we don't later call
+		// FetchSubtitle with an empty URL.
+		u := normalizeSubURL(s.URL)
+		if u == "" {
+			continue
+		}
+		info.Subtitles = append(info.Subtitles, Subtitle{Lang: s.Lan, URL: u})
 	}
 
 	// Pick the requested page.

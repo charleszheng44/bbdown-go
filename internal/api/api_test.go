@@ -492,6 +492,70 @@ func TestFetchSubtitle_EndToEnd(t *testing.T) {
 	}
 }
 
+// TestFetchPlayInfo_Regular_SkipsEmptySubtitleURLs confirms that subtitle
+// list entries whose subtitle_url is empty (Bilibili returns these for AI-
+// generated tracks whose URLs are only available via /x/player/v2, and for
+// some tracks when no SESSDATA is presented) are filtered out, so callers
+// never end up calling FetchSubtitle with an empty URL.
+func TestFetchPlayInfo_Regular_SkipsEmptySubtitleURLs(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/x/web-interface/nav", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write(envelopeOK(map[string]any{
+			"wbi_img": map[string]any{
+				"img_url": "https://i0.hdslb.com/bfs/wbi/" + strings.Repeat("a", 32) + ".png",
+				"sub_url": "https://i0.hdslb.com/bfs/wbi/" + strings.Repeat("b", 32) + ".png",
+			},
+		}))
+	})
+	mux.HandleFunc("/x/web-interface/view", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write(envelopeOK(map[string]any{
+			"bvid":  "BV1aBc",
+			"aid":   1,
+			"cid":   2,
+			"title": "T",
+			"pages": []map[string]any{{"page": 1, "cid": 2, "part": "P1", "duration": 1}},
+			"subtitle": map[string]any{
+				"list": []map[string]any{
+					{"lan": "ai-zh", "subtitle_url": ""},
+					{"lan": "zh-CN", "subtitle_url": "//i0.hdslb.com/s/zh.json"},
+					{"lan": "ai-en", "subtitle_url": ""},
+				},
+			},
+		}))
+	})
+	mux.HandleFunc("/x/player/wbi/playurl", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write(envelopeOK(map[string]any{
+			"dash": map[string]any{
+				"video": []map[string]any{{"id": 80, "baseUrl": "https://cdn/v.m4s"}},
+				"audio": []map[string]any{{"id": 30280, "baseUrl": "https://cdn/a.m4s"}},
+			},
+		}))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	withAllBases(t, srv.URL, func() {
+		c := NewClient(nil, "")
+		c.now = func() time.Time { return time.Unix(1700000000, 0) }
+		info, err := c.FetchPlayInfo(context.Background(), parser.Target{
+			Kind: parser.KindRegular,
+			BVID: "BV1aBc",
+		}, 1)
+		if err != nil {
+			t.Fatalf("FetchPlayInfo: %v", err)
+		}
+		if len(info.Subtitles) != 1 {
+			t.Fatalf("len(Subtitles) = %d, want 1; got %+v", len(info.Subtitles), info.Subtitles)
+		}
+		if info.Subtitles[0].URL != "https://i0.hdslb.com/s/zh.json" {
+			t.Errorf("Subtitles[0].URL = %q, want normalized https URL", info.Subtitles[0].URL)
+		}
+		if info.Subtitles[0].Lang != "zh-CN" {
+			t.Errorf("Subtitles[0].Lang = %q, want zh-CN", info.Subtitles[0].Lang)
+		}
+	})
+}
+
 // TestBangumiPlayQueryDeterministic exercises the wtsNow hook and pins the
 // full query-string shape that goes to /pgc/player/web/v2/playurl and
 // /pugv/player/web/playurl. Key ordering here is load-bearing — the
