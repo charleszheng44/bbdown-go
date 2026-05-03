@@ -492,6 +492,20 @@ func TestFetchSubtitle_EndToEnd(t *testing.T) {
 	}
 }
 
+// TestFetchSubtitle_EmptyURL guards FetchSubtitle's defensive check so a
+// future caller passing url == "" gets a clear error instead of a confusing
+// `unsupported protocol scheme ""` from net/http.
+func TestFetchSubtitle_EmptyURL(t *testing.T) {
+	c := NewClient(nil, "")
+	_, err := c.FetchSubtitle(context.Background(), "")
+	if err == nil {
+		t.Fatal("FetchSubtitle(\"\"): want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "empty URL") {
+		t.Errorf("FetchSubtitle(\"\") error = %q, want it to mention empty URL", err.Error())
+	}
+}
+
 // TestFetchPlayInfo_Regular_SkipsEmptySubtitleURLs confirms that subtitle
 // list entries whose subtitle_url is empty (Bilibili returns these for AI-
 // generated tracks whose URLs are only available via /x/player/v2, and for
