@@ -18,6 +18,7 @@ import (
 	"github.com/charleszheng44/bbdown-go/internal/mux"
 	"github.com/charleszheng44/bbdown-go/internal/parser"
 	"github.com/charleszheng44/bbdown-go/internal/planner"
+	"github.com/charleszheng44/bbdown-go/internal/progress"
 )
 
 // runDownload is the entrypoint for the root command. It handles both the
@@ -86,6 +87,12 @@ func runBatch(ctx context.Context, client *api.Client, httpc *http.Client, flags
 	workers := flags.Concurrency
 	if workers < 1 {
 		workers = 1
+	}
+	// Concurrent batch mode would have multiple animated bar surfaces
+	// fighting over the same TTY. Force plain output so they interleave
+	// as text instead.
+	if workers > 1 && (flags.progressMode == progress.ModeAuto || flags.progressMode == progress.ModeAlways) {
+		flags.progressMode = progress.ModePlain
 	}
 	sem := make(chan struct{}, workers)
 	var wg sync.WaitGroup
@@ -237,14 +244,26 @@ func processPart(ctx context.Context, client *api.Client, httpc *http.Client, fl
 		Headers:   http.Header{"Referer": []string{"https://www.bilibili.com"}},
 	}
 
+	mgr := progress.New(os.Stderr, flags.progressMode)
+	defer mgr.Wait()
+
+	multiPart := len(info.Parts) > 1
+	if multiPart {
+		mgr.Println("Part %d/%d: %s", page, len(info.Parts), pageTitle)
+	}
+
 	var wg sync.WaitGroup
 	errCh := make(chan error, 3)
 
 	if sel.Video != nil && !flags.AudioOnly {
+		videoTr := mgr.Track("video", -1)
+		videoOpts := dlOpts
+		videoOpts.OnProgress = videoTr.Update
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := download.Fetch(ctx, httpc, sel.Video.BaseURL, videoPath, dlOpts); err != nil {
+			if err := download.Fetch(ctx, httpc, sel.Video.BaseURL, videoPath, videoOpts); err != nil {
+				videoTr.Abort()
 				errCh <- fmt.Errorf("video: %w", err)
 			}
 		}()
@@ -253,10 +272,14 @@ func processPart(ctx context.Context, client *api.Client, httpc *http.Client, fl
 	}
 
 	if sel.Audio != nil && !flags.VideoOnly {
+		audioTr := mgr.Track("audio", -1)
+		audioOpts := dlOpts
+		audioOpts.OnProgress = audioTr.Update
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := download.Fetch(ctx, httpc, sel.Audio.BaseURL, audioPath, dlOpts); err != nil {
+			if err := download.Fetch(ctx, httpc, sel.Audio.BaseURL, audioPath, audioOpts); err != nil {
+				audioTr.Abort()
 				errCh <- fmt.Errorf("audio: %w", err)
 			}
 		}()
@@ -281,6 +304,9 @@ func processPart(ctx context.Context, client *api.Client, httpc *http.Client, fl
 
 	wg.Wait()
 	close(errCh)
+	// Flush the progress surface before any subsequent stdout writes
+	// (e.g. "Saved ...") so animated bars don't tangle with later output.
+	mgr.Wait()
 	if err, ok := <-errCh; ok {
 		keepTmp = flags.Debug
 		return err

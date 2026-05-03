@@ -2,6 +2,8 @@ package main
 
 import (
 	"github.com/spf13/cobra"
+
+	"github.com/charleszheng44/bbdown-go/internal/progress"
 )
 
 // version is set via -ldflags "-X main.version=..." at release time.
@@ -31,6 +33,10 @@ type rootFlags struct {
 	Concurrency int
 	Debug       bool
 	BatchFile   string
+	Progress    string
+
+	// progressMode is parsed from Progress at PreRunE time.
+	progressMode progress.Mode
 }
 
 // debugMode mirrors rootFlags.Debug and is read by formatError. Exposed as a
@@ -47,6 +53,14 @@ func newRootCmd(flags *rootFlags) *cobra.Command {
 		SilenceErrors: true,
 		Version:       version,
 		Args:          cobra.ArbitraryArgs,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			m, err := progress.ParseMode(flags.Progress)
+			if err != nil {
+				return err
+			}
+			flags.progressMode = m
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			debugMode = flags.Debug
 			return runDownload(cmd.Context(), flags, args)
@@ -88,6 +102,8 @@ func newRootCmd(flags *rootFlags) *cobra.Command {
 		"verbose logs on stderr, raw API dumps on errors")
 	cmd.PersistentFlags().StringVar(&flags.BatchFile, "batch-file", "",
 		"path to a file listing URLs to download (one per line)")
+	cmd.PersistentFlags().StringVar(&flags.Progress, "progress", "auto",
+		"progress display: auto|always|never|plain")
 
 	cmd.AddCommand(newLoginCmd(flags))
 	cmd.AddCommand(newLogoutCmd())
