@@ -52,10 +52,33 @@ func runDownload(ctx context.Context, flags *rootFlags, args []string) error {
 	}
 
 	if len(urls) == 1 {
-		return processURL(ctx, client, httpc, flags, urls[0])
+		// Single URL: spend the concurrency budget on parts within this URL.
+		return processURL(ctx, client, httpc, flags, urls[0], partWorkersFor(flags))
 	}
 
 	return runBatch(ctx, client, httpc, flags, urls)
+}
+
+// partWorkersFor reports how many parts of a single URL should be
+// downloaded in parallel. Values < 1 are clamped to 1.
+func partWorkersFor(flags *rootFlags) int {
+	w := flags.Concurrency
+	if w < 1 {
+		w = 1
+	}
+	return w
+}
+
+// coerceProgressForParallel forces the progress renderer to plain mode
+// when multiple downloads will run concurrently. Multiple animated bar
+// surfaces would fight over the same TTY cursor.
+func coerceProgressForParallel(flags *rootFlags, workers int) {
+	if workers <= 1 {
+		return
+	}
+	if flags.progressMode == progress.ModeAuto || flags.progressMode == progress.ModeAlways {
+		flags.progressMode = progress.ModePlain
+	}
 }
 
 // collectURLs merges --batch-file URLs and positional argv URLs into the
@@ -82,18 +105,11 @@ func loadCookies(flags *rootFlags) (auth.Cookies, error) {
 }
 
 // runBatch dispatches urls through a bounded worker pool sized by
-// flags.Concurrency.
+// flags.Concurrency. Parts within each URL are processed sequentially
+// here so the concurrency budget isn't spent twice over.
 func runBatch(ctx context.Context, client *api.Client, httpc *http.Client, flags *rootFlags, urls []string) error {
-	workers := flags.Concurrency
-	if workers < 1 {
-		workers = 1
-	}
-	// Concurrent batch mode would have multiple animated bar surfaces
-	// fighting over the same TTY. Force plain output so they interleave
-	// as text instead.
-	if workers > 1 && (flags.progressMode == progress.ModeAuto || flags.progressMode == progress.ModeAlways) {
-		flags.progressMode = progress.ModePlain
-	}
+	workers := partWorkersFor(flags)
+	coerceProgressForParallel(flags, workers)
 	sem := make(chan struct{}, workers)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -108,7 +124,7 @@ func runBatch(ctx context.Context, client *api.Client, httpc *http.Client, flags
 		go func(url string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			if err := processURL(ctx, client, httpc, flags, url); err != nil {
+			if err := processURL(ctx, client, httpc, flags, url, 1); err != nil {
 				mu.Lock()
 				if firstErr == nil {
 					firstErr = err
@@ -123,8 +139,10 @@ func runBatch(ctx context.Context, client *api.Client, httpc *http.Client, flags
 }
 
 // processURL runs the classify → fetch → plan → download → mux pipeline for
-// a single URL, honoring flags.Part for multi-page selection.
-func processURL(ctx context.Context, client *api.Client, httpc *http.Client, flags *rootFlags, rawURL string) error {
+// a single URL, honoring flags.Part for multi-page selection. partWorkers
+// controls how many of the selected parts may be processed in parallel;
+// 1 means strict sequential.
+func processURL(ctx context.Context, client *api.Client, httpc *http.Client, flags *rootFlags, rawURL string, partWorkers int) error {
 	target, err := parser.Classify(rawURL)
 	if err != nil {
 		return err
@@ -167,22 +185,71 @@ func processURL(ctx context.Context, client *api.Client, httpc *http.Client, fla
 		Interactive: flags.Interactive,
 	}
 
-	for _, page := range pages {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		info := baseInfo
-		if page != 1 {
-			info, err = client.FetchPlayInfo(ctx, target, page)
-			if err != nil {
+	if partWorkers < 1 {
+		partWorkers = 1
+	}
+	if partWorkers > len(pages) {
+		partWorkers = len(pages)
+	}
+	if partWorkers == 1 {
+		for _, page := range pages {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			info := baseInfo
+			if page != 1 {
+				info, err = client.FetchPlayInfo(ctx, target, page)
+				if err != nil {
+					return err
+				}
+			}
+			if err := processPart(ctx, client, httpc, flags, prefs, template, info, page); err != nil {
 				return err
 			}
 		}
-		if err := processPart(ctx, client, httpc, flags, prefs, template, info, page); err != nil {
-			return err
-		}
+		return nil
 	}
-	return nil
+
+	// Concurrent parts share one TTY, so coerce animated → plain.
+	coerceProgressForParallel(flags, partWorkers)
+
+	sem := make(chan struct{}, partWorkers)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var firstErr error
+	setErr := func(err error) {
+		mu.Lock()
+		if firstErr == nil {
+			firstErr = err
+		}
+		mu.Unlock()
+	}
+
+	for _, page := range pages {
+		if ctx.Err() != nil {
+			break
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(page int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			info := baseInfo
+			if page != 1 {
+				pi, err := client.FetchPlayInfo(ctx, target, page)
+				if err != nil {
+					setErr(fmt.Errorf("part %d: %w", page, err))
+					return
+				}
+				info = pi
+			}
+			if err := processPart(ctx, client, httpc, flags, prefs, template, info, page); err != nil {
+				setErr(fmt.Errorf("part %d: %w", page, err))
+			}
+		}(page)
+	}
+	wg.Wait()
+	return firstErr
 }
 
 // processPart runs the download / mux pipeline for a single resolved page.
