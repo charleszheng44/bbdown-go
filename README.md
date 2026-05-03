@@ -26,6 +26,9 @@ Under active development. Track progress and open issues at <https://github.com/
 
 - Go 1.25 or newer (to build or `go install`).
 - [ffmpeg](https://ffmpeg.org/) available on your `PATH` (used for muxing video, audio, and subtitles into MP4).
+  - macOS: `brew install ffmpeg`
+  - Debian/Ubuntu: `sudo apt install ffmpeg`
+  - Windows: `winget install Gyan.FFmpeg` (or download a build from <https://ffmpeg.org/download.html>)
 
 ## Install
 
