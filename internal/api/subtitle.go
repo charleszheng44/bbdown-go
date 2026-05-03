@@ -25,6 +25,9 @@ type bccDoc struct {
 // timestamps separated by " --> ", the content on the next line, and a blank
 // line between cues. Trailing newline is included so that appending is safe.
 func (c *Client) FetchSubtitle(ctx context.Context, url string) ([]byte, error) {
+	if url == "" {
+		return nil, fmt.Errorf("api: fetch subtitle: empty URL")
+	}
 	body, err := c.doRaw(ctx, url)
 	if err != nil {
 		return nil, fmt.Errorf("api: fetch subtitle: %w", err)
