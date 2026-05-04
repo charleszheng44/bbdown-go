@@ -203,15 +203,18 @@ func processURL(ctx context.Context, client *api.Client, httpc *http.Client, fla
 					return err
 				}
 			}
-			if err := processPart(ctx, client, httpc, flags, prefs, template, info, page); err != nil {
+			if err := processPart(ctx, client, httpc, flags, prefs, template, info, page, nil); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
 
-	// Concurrent parts share one TTY, so coerce animated → plain.
-	coerceProgressForParallel(flags, partWorkers)
+	// Concurrent parts share one progress surface so animated bars stack
+	// in place instead of multiple mpb.Progress instances fighting over
+	// the TTY cursor.
+	mgr := progress.New(os.Stderr, flags.progressMode)
+	defer mgr.Wait()
 
 	sem := make(chan struct{}, partWorkers)
 	var wg sync.WaitGroup
@@ -243,7 +246,7 @@ func processURL(ctx context.Context, client *api.Client, httpc *http.Client, fla
 				}
 				info = pi
 			}
-			if err := processPart(ctx, client, httpc, flags, prefs, template, info, page); err != nil {
+			if err := processPart(ctx, client, httpc, flags, prefs, template, info, page, mgr); err != nil {
 				setErr(fmt.Errorf("part %d: %w", page, err))
 			}
 		}(page)
@@ -253,7 +256,9 @@ func processURL(ctx context.Context, client *api.Client, httpc *http.Client, fla
 }
 
 // processPart runs the download / mux pipeline for a single resolved page.
-func processPart(ctx context.Context, client *api.Client, httpc *http.Client, flags *rootFlags, prefs planner.Prefs, template string, info api.PlayInfo, page int) error {
+// When mgr is non-nil the caller owns the progress surface (concurrent
+// parts share one); otherwise processPart builds and Waits its own.
+func processPart(ctx context.Context, client *api.Client, httpc *http.Client, flags *rootFlags, prefs planner.Prefs, template string, info api.PlayInfo, page int, mgr progress.Manager) error {
 	pageTitle := ""
 	if page-1 >= 0 && page-1 < len(info.Parts) {
 		pageTitle = info.Parts[page-1].Title
@@ -311,8 +316,11 @@ func processPart(ctx context.Context, client *api.Client, httpc *http.Client, fl
 		Headers:   http.Header{"Referer": []string{"https://www.bilibili.com"}},
 	}
 
-	mgr := progress.New(os.Stderr, flags.progressMode)
-	defer mgr.Wait()
+	ownMgr := mgr == nil
+	if ownMgr {
+		mgr = progress.New(os.Stderr, flags.progressMode)
+		defer mgr.Wait()
+	}
 
 	multiPart := len(info.Parts) > 1
 	// When parts run concurrently every progress line needs to identify
@@ -378,9 +386,13 @@ func processPart(ctx context.Context, client *api.Client, httpc *http.Client, fl
 
 	wg.Wait()
 	close(errCh)
-	// Flush the progress surface before any subsequent stdout writes
-	// (e.g. "Saved ...") so animated bars don't tangle with later output.
-	mgr.Wait()
+	if ownMgr {
+		// Flush our private surface before any subsequent stdout writes
+		// (e.g. "Saved ...") so animated bars don't tangle with later
+		// output. Shared surfaces are flushed by the caller after all
+		// concurrent parts return.
+		mgr.Wait()
+	}
 	if err, ok := <-errCh; ok {
 		keepTmp = flags.Debug
 		return err
