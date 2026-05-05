@@ -203,7 +203,7 @@ func processURL(ctx context.Context, client *api.Client, httpc *http.Client, fla
 					return err
 				}
 			}
-			if err := processPart(ctx, client, httpc, flags, prefs, template, info, page, nil); err != nil {
+			if err := processPart(ctx, client, httpc, flags, prefs, template, info, page, nil, printSaved); err != nil {
 				return err
 			}
 		}
@@ -215,6 +215,17 @@ func processURL(ctx context.Context, client *api.Client, httpc *http.Client, fla
 	// the TTY cursor.
 	mgr := progress.New(os.Stderr, flags.progressMode)
 	defer mgr.Wait()
+
+	// "Saved …" lines must not hit stdout while bars are still active on
+	// the shared surface, so each part appends to this slice and the
+	// caller drains it after mgr.Wait() flushes the surface.
+	var savedMu sync.Mutex
+	var savedPaths []string
+	bufferSaved := func(p string) {
+		savedMu.Lock()
+		savedPaths = append(savedPaths, p)
+		savedMu.Unlock()
+	}
 
 	sem := make(chan struct{}, partWorkers)
 	var wg sync.WaitGroup
@@ -246,19 +257,36 @@ func processURL(ctx context.Context, client *api.Client, httpc *http.Client, fla
 				}
 				info = pi
 			}
-			if err := processPart(ctx, client, httpc, flags, prefs, template, info, page, mgr); err != nil {
+			if err := processPart(ctx, client, httpc, flags, prefs, template, info, page, mgr, bufferSaved); err != nil {
 				setErr(fmt.Errorf("part %d: %w", page, err))
 			}
 		}(page)
 	}
 	wg.Wait()
+	// Flush the shared surface before draining buffered Saved paths so
+	// stdout lines never tangle with active bars on stderr. The deferred
+	// mgr.Wait() above is a panic-safety net; Wait is idempotent.
+	mgr.Wait()
+	for _, p := range savedPaths {
+		printSaved(p)
+	}
 	return firstErr
+}
+
+// printSaved writes the canonical "Saved <path>" announcement to stdout.
+// stdout (not stderr) so `bbdown <url> > out.log` keeps these lines.
+func printSaved(path string) {
+	fmt.Fprintf(os.Stdout, "Saved %s\n", path)
 }
 
 // processPart runs the download / mux pipeline for a single resolved page.
 // When mgr is non-nil the caller owns the progress surface (concurrent
 // parts share one); otherwise processPart builds and Waits its own.
-func processPart(ctx context.Context, client *api.Client, httpc *http.Client, flags *rootFlags, prefs planner.Prefs, template string, info api.PlayInfo, page int, mgr progress.Manager) error {
+// onSaved is invoked with each finalized output path; sequential callers
+// pass an immediate-stdout callback, concurrent callers buffer until the
+// shared progress surface has been flushed so "Saved …" lines never tangle
+// with active animated bars.
+func processPart(ctx context.Context, client *api.Client, httpc *http.Client, flags *rootFlags, prefs planner.Prefs, template string, info api.PlayInfo, page int, mgr progress.Manager, onSaved func(string)) error {
 	pageTitle := ""
 	if page-1 >= 0 && page-1 < len(info.Parts) {
 		pageTitle = info.Parts[page-1].Title
@@ -292,7 +320,7 @@ func processPart(ctx context.Context, client *api.Client, httpc *http.Client, fl
 
 	// Sub-only short-circuits everything else.
 	if flags.SubOnly {
-		return saveSubtitles(ctx, client, info, finalPath)
+		return saveSubtitles(ctx, client, info, finalPath, onSaved)
 	}
 
 	tmpDir, err := makeTempDir(info.CID, page)
@@ -400,22 +428,32 @@ func processPart(ctx context.Context, client *api.Client, httpc *http.Client, fl
 
 	// --video-only / --audio-only skip mux; just move the file into place.
 	if flags.VideoOnly {
-		return moveTo(videoPath, replaceExt(finalPath, ".m4v"))
+		dst := replaceExt(finalPath, ".m4v")
+		if err := moveTo(videoPath, dst); err != nil {
+			return err
+		}
+		onSaved(dst)
+		return nil
 	}
 	if flags.AudioOnly {
-		return moveTo(audioPath, replaceExt(finalPath, ".m4a"))
+		dst := replaceExt(finalPath, ".m4a")
+		if err := moveTo(audioPath, dst); err != nil {
+			return err
+		}
+		onSaved(dst)
+		return nil
 	}
 
 	inputs := mux.Inputs{Video: videoPath, Audio: audioPath, Subtitle: subPath}
 	if err := mux.Combine(ctx, inputs, finalPath); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stdout, "Saved %s\n", finalPath)
+	onSaved(finalPath)
 	return nil
 }
 
 // saveSubtitles writes every available subtitle track next to finalPath.
-func saveSubtitles(ctx context.Context, client *api.Client, info api.PlayInfo, finalPath string) error {
+func saveSubtitles(ctx context.Context, client *api.Client, info api.PlayInfo, finalPath string, onSaved func(string)) error {
 	if len(info.Subtitles) == 0 {
 		return errors.New("no subtitles available for this item")
 	}
@@ -425,7 +463,7 @@ func saveSubtitles(ctx context.Context, client *api.Client, info api.PlayInfo, f
 		if err := fetchSubtitleFile(ctx, client, s.URL, dst); err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stdout, "Saved %s\n", dst)
+		onSaved(dst)
 	}
 	return nil
 }
@@ -454,6 +492,7 @@ func makeTempDir(cid string, page int) (string, error) {
 }
 
 // moveTo renames src to dst, falling back to copy+delete across filesystems.
+// Announcement of the saved path is the caller's responsibility.
 func moveTo(src, dst string) error {
 	if src == "" {
 		return errors.New("nothing to move")
@@ -462,7 +501,6 @@ func moveTo(src, dst string) error {
 		return err
 	}
 	if err := os.Rename(src, dst); err == nil {
-		fmt.Fprintf(os.Stdout, "Saved %s\n", dst)
 		return nil
 	}
 	in, err := os.Open(src)
@@ -482,7 +520,6 @@ func moveTo(src, dst string) error {
 		return err
 	}
 	_ = os.Remove(src)
-	fmt.Fprintf(os.Stdout, "Saved %s\n", dst)
 	return nil
 }
 
